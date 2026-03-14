@@ -49,16 +49,15 @@
     "stack_free": { "desc": "free stack space after call (SP += size)", "steps": [ { "insn": "add", "variant": "reg16_imm8s", "args": ["sp", "$size"] } ] },
     "load_addr": { "desc": "ax = адрес переменной (BP + offset)", "steps": [ { "insn": "mov", "variant": "reg16_reg16",  "args": ["ax", "bp"] }, { "insn": "add", "variant": "reg16_imm8s",  "args": ["ax", "$offset"]  } ] },
     "ptr_load": {
-        "desc": "bx = ax; ax = [bx]",
         "steps": [
-            { "insn": "mov", "variant": "reg16_reg16",     "args": ["bx", "ax"] },
-            { "insn": "mov", "variant": "reg16_ptr_reg16", "args": ["ax", "bx"] }
+            { "insn": "mov", "variant": "reg16_reg16",  "args": ["bx", "ax"] },
+            { "insn": "mov", "variant": "reg16_ptr_bx", "args": ["ax", "bx"] }
         ]
     },
     "ptr_store": {
+        "desc": "[bx] = ax",
         "steps": [
-            { "insn": "mov", "variant": "reg16_reg16",  "args": ["bx", "bx"] },
-            { "insn": "mov", "variant": "reg16_reg16_dst", "args": ["bx", "ax"] }
+            { "insn": "mov", "variant": "bx_ptr_reg16", "args": ["ax"] }
         ]
     },
 
@@ -201,6 +200,27 @@
             { "bits": "5:3",  "source": "arg:0:reg.id" },
             { "bits": "2:0",  "source": "arg:1:reg.id" }
           ]
+        },
+
+        "reg16_ptr_bx": {
+            "desc": "MOV reg16, [BX]  →  0x8B, ModRM(00,dst,111)",
+            "size_bits": 16,
+            "fields": [
+                { "bits": "15:8", "source": "const:0x8B"   },
+                { "bits": "7:6",  "source": "const:0x0"    },
+                { "bits": "5:3",  "source": "arg:0:reg.id" },
+                { "bits": "2:0",  "source": "const:0x7"    }
+            ]
+        },
+        "bx_ptr_reg16": {
+            "desc": "MOV [BX], reg16  →  0x89, ModRM(00,src,111)",
+            "size_bits": 16,
+            "fields": [
+                { "bits": "15:8", "source": "const:0x89"   },
+                { "bits": "7:6",  "source": "const:0x0"    },
+                { "bits": "5:3",  "source": "arg:0:reg.id" },
+                { "bits": "2:0",  "source": "const:0x7"    }
+            ]
         }
       }
     },
