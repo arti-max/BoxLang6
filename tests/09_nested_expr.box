@@ -1,0 +1,7 @@
+box _start[] (
+    num16 a: 2;
+    num16 b: 3;
+    num16 c: 4;
+    num16 r: a + b * c;
+    exit[0];
+)

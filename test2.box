@@ -1,0 +1,13 @@
+box _start[] (
+    num16 a: 10;
+
+    if [a > 6] (
+        ret 1;
+    ) else if [a == 10] (
+        ret 2;
+    ) else (
+        ret 3;
+    )
+
+    exit[0];
+)

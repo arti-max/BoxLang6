@@ -1,0 +1,7 @@
+box _start[] : num16 (
+    char x: 42;
+    char* p: &x;      // p = адрес x в ZP
+    char y: *p;       // y = значение по адресу p
+
+    exit[0];
+)

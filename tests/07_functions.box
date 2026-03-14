@@ -1,0 +1,8 @@
+box add[num16 a, num16 b] : num16 (
+    ret a + b;
+)
+
+box _start[] (
+    open add[3, 4];
+    exit[0];
+)

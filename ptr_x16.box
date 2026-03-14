@@ -1,0 +1,7 @@
+box _start[] : num16 (
+    num16 x: 42;
+    num16* p: &x;     // p = адрес x
+    num16 y: *p;      // y = значение по адресу p
+
+    exit[0];
+)

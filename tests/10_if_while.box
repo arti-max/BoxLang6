@@ -1,0 +1,11 @@
+box _start[] (
+    num16 i: 0;
+    num16 found: 0;
+    while [i < 10] (
+        if [i == 7] (
+            found: 1;
+        )
+        i: i + 1;
+    )
+    exit[0];
+)

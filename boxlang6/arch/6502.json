@@ -1,0 +1,505 @@
+{
+  "name":   "mos6502",
+  "bits":   8,
+  "endian": "big",
+
+  "operand_kinds": {
+    "reg_a": { "match": "reg",   "name": "a"               },
+    "reg_x": { "match": "reg",   "name": "x"               },
+    "reg_y": { "match": "reg",   "name": "y"               },
+    "imm8":  { "match": "imm",   "min": 0,    "max": 255   },
+    "zp":    { "match": "var",   "storage": "zeropage"     },
+    "abs16": { "match": "imm",   "min": 0,    "max": 65535 },
+    "rel8":  { "match": "label", "range": 8                }
+  },
+
+  "registers": {
+    "a": { "id": 0, "bits": 8 },
+    "x": { "id": 1, "bits": 8 },
+    "y": { "id": 2, "bits": 8 },
+    "s": { "id": 3, "bits": 8 },
+    "p": { "id": 4, "bits": 8 }
+  },
+
+  "calling_convention": {
+    "arg_passing": "registers",
+    "args":        ["a", "x"],
+    "return":      "a",
+    "stack_align": 1,
+    "preserved":   []
+  },
+
+  "var_storage": "zeropage",
+  "var_addr_base":     "0x10",
+
+  "var_alloc": { "insn": "nop", "variant": "plain", "args": [] },
+  "var_load":  { "insn": "lda", "variant": "zp", "args": ["$var_addr"] },
+  "var_store": { "insn": "sta", "variant": "zp", "args": ["$var_addr"] },
+
+  "ops": {
+
+    "load_imm": {
+      "desc": "A = imm8",
+      "steps": [
+        { "insn": "lda", "variant": "imm", "args": ["$value"] }
+      ]
+    },
+
+    "load_var": {
+      "desc": "A = [zp]",
+      "steps": [
+        { "insn": "lda", "variant": "zp", "args": ["$var_addr"] }
+      ]
+    },
+    "load_var8": {
+      "desc": "A = [zp] (8-bit)",
+      "steps": [
+        { "insn": "lda", "variant": "zp", "args": ["$var_addr"] }
+      ]
+    },
+
+    "store_var": {
+      "desc": "[zp] = A",
+      "steps": [
+        { "insn": "sta", "variant": "zp", "args": ["$var_addr"] }
+      ]
+    },
+    "store_var8": {
+      "desc": "[zp] = A (8-bit)",
+      "steps": [
+        { "insn": "sta", "variant": "zp", "args": ["$var_addr"] }
+      ]
+    },
+
+    "copy_reg": {
+      "desc": "A ↔ X transfer (только A↔X поддерживается)",
+      "steps": [
+        { "insn": "tax", "variant": "plain", "args": [] }
+      ]
+    },
+
+    "push_reg": {
+      "desc": "push A на хардварный стек 6502",
+      "steps": [
+        { "insn": "pha", "variant": "plain", "args": [] }
+      ]
+    },
+    "pop_reg": {
+      "desc": "pop A с хардварного стека 6502",
+      "steps": [
+        { "insn": "pla", "variant": "plain", "args": [] }
+      ]
+    },
+
+    "add": {
+      "desc": "A += tmp (через ZP 0xFE как временный операнд)",
+      "steps": [
+        { "insn": "stx", "variant": "zp_lit", "args": ["const:0xFE"] },
+        { "insn": "clc", "variant": "plain",   "args": []             },
+        { "insn": "adc", "variant": "zp_lit",  "args": ["const:0xFE"] }
+      ]
+    },
+
+    "sub": {
+      "desc": "A -= tmp (через ZP 0xFE)",
+      "steps": [
+        { "insn": "stx", "variant": "zp_lit", "args": ["const:0xFE"] },
+        { "insn": "sec", "variant": "plain",   "args": []             },
+        { "insn": "sbc", "variant": "zp_lit",  "args": ["const:0xFE"] }
+      ]
+    },
+
+    "cmp": {
+      "desc": "cmp A с tmp (через ZP 0xFE)",
+      "steps": [
+        { "insn": "stx", "variant": "zp_lit", "args": ["const:0xFE"] },
+        { "insn": "cmp", "variant": "zp_lit",  "args": ["const:0xFE"] }
+      ]
+    },
+
+    "call": {
+      "steps": [
+        { "insn": "jsr", "variant": "abs", "args": ["$label"] }
+      ]
+    },
+    "ret": {
+      "steps": [
+        { "insn": "rts", "variant": "plain", "args": [] }
+      ]
+    },
+    "jump": {
+      "steps": [
+        { "insn": "jmp", "variant": "abs", "args": ["$label"] }
+      ]
+    },
+
+    "load_addr": {
+        "desc": "A = абсолютный адрес переменной в ZP",
+        "steps": [
+            { "insn": "lda", "variant": "imm", "args": ["$offset"] }
+        ]
+    },
+    "ptr_load": {
+        "desc": "A = [A]  — на 6502 через ZP indirect: (ZP),Y",
+        "steps": [
+            { "insn": "sta", "variant": "zp_lit", "args": ["const:0xFD"] },
+            { "insn": "lda", "variant": "imm",    "args": ["const:0x00"] },
+            { "insn": "sta", "variant": "zp_lit", "args": ["const:0xFE"] },
+            { "insn": "ldy", "variant": "imm",    "args": ["const:0x00"] },
+            { "insn": "lda", "variant": "zp_ind_y","args": ["const:0xFD"] }
+        ]
+    },
+
+    "jump_if_zero":       { "steps": [ { "insn": "beq", "variant": "rel8", "args": ["$label"] } ] },
+    "jump_if_not_zero":   { "steps": [ { "insn": "bne", "variant": "rel8", "args": ["$label"] } ] },
+    "jump_if_less":       { "steps": [ { "insn": "bcc", "variant": "rel8", "args": ["$label"] } ] },
+    "jump_if_greater_eq": { "steps": [ { "insn": "bcs", "variant": "rel8", "args": ["$label"] } ] },
+
+    "jump_if_less_eq": {
+      "desc": "beq + bcc (нет прямого jle на 6502)",
+      "steps": [
+        { "insn": "beq", "variant": "rel8", "args": ["$label"] },
+        { "insn": "bcc", "variant": "rel8", "args": ["$label"] }
+      ]
+    },
+    "jump_if_greater": {
+      "desc": "bcs без beq = carry set AND not zero",
+      "steps": [
+        { "insn": "beq", "variant": "rel8", "args": ["$label"] },
+        { "insn": "bcs", "variant": "rel8", "args": ["$label"] }
+      ]
+    },
+
+    "syscall_exit": {
+      "desc": "bare metal halt: бесконечный цикл на себя",
+      "steps": [
+        { "insn": "lda", "variant": "imm",   "args": ["$code"]        },
+        { "insn": "jmp", "variant": "abs",   "args": ["$halt_label"]        }
+      ]
+    }
+  },
+
+  "instructions": {
+
+    "lda": {
+      "desc": "Load Accumulator",
+      "variants": {
+        "imm": {
+          "desc": "LDA #imm8  →  0xA9, imm8",
+          "operands": ["imm8"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0xA9" },
+            { "bits": "7:0",  "source": "arg:0:imm"  }
+          ]
+        },
+        "zp": {
+          "desc": "LDA zp  →  0xA5, addr8",
+          "operands": ["zp"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0xA5"      },
+            { "bits": "7:0",  "source": "arg:0:var.offset" }
+          ]
+        },
+        "zp_lit": {
+          "desc": "LDA zp (literal addr)  →  0xA5, addr8",
+          "operands": ["addr"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0xA5" },
+            { "bits": "7:0",  "source": "arg:0:imm"  }
+          ]
+        },
+        "abs": {
+          "desc": "LDA abs  →  0xAD, lo, hi",
+          "size_bits": 24,
+          "fields": [
+            { "bits": "23:16", "source": "const:0xAD"    },
+            { "bits": "15:8",  "source": "arg:0:imm.lo8" },
+            { "bits": "7:0",   "source": "arg:0:imm.hi8" }
+          ]
+        },
+        "zp_ind_y": {
+            "desc": "LDA (zp),Y  →  0xB1, zp_addr",
+            "size_bits": 16,
+            "fields": [
+                { "bits": "15:8", "source": "const:0xB1" },
+                { "bits": "7:0",  "source": "arg:0:imm"  }
+            ]
+        }
+      }
+    },
+
+    "ldy": {
+        "variants": {
+            "imm": {
+                "size_bits": 16,
+                "fields": [
+                    { "bits": "15:8", "source": "const:0xA0" },
+                    { "bits": "7:0",  "source": "arg:0:imm"  }
+                ]
+            }
+        }
+    },
+
+    "sta": {
+      "desc": "Store Accumulator",
+      "variants": {
+        "zp": {
+          "desc": "STA zp  →  0x85, addr8",
+          "operands": ["zp"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0x85"      },
+            { "bits": "7:0",  "source": "arg:0:var.offset" }
+          ]
+        },
+        "zp_lit": {
+          "desc": "STA zp (literal addr)  →  0x85, addr8",
+          "operands": ["addr"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0x85" },
+            { "bits": "7:0",  "source": "arg:0:imm"  }
+          ]
+        },
+        "abs": {
+          "desc": "STA abs  →  0x8D, lo, hi",
+          "size_bits": 24,
+          "fields": [
+            { "bits": "23:16", "source": "const:0x8D"    },
+            { "bits": "15:8",  "source": "arg:0:imm.lo8" },
+            { "bits": "7:0",   "source": "arg:0:imm.hi8" }
+          ]
+        }
+      }
+    },
+
+    "ldx": {
+      "desc": "Load X Register",
+      "variants": {
+        "imm": {
+          "desc": "LDX #imm8  →  0xA2, imm8",
+          "operands": ["imm8"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0xA2" },
+            { "bits": "7:0",  "source": "arg:0:imm"  }
+          ]
+        },
+        "zp": {
+          "desc": "LDX zp  →  0xA6, addr8",
+          "operands": ["zp"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0xA6"      },
+            { "bits": "7:0",  "source": "arg:0:var.offset" }
+          ]
+        },
+        "zp_lit": {
+          "desc": "LDX zp (literal addr)  →  0xA6, addr8",
+          "operands": ["addr"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0xA6" },
+            { "bits": "7:0",  "source": "arg:0:imm"  }
+          ]
+        }
+      }
+    },
+
+    "stx": {
+      "desc": "Store X Register",
+      "variants": {
+        "zp": {
+          "desc": "STX zp  →  0x86, addr8",
+          "operands": ["zp"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0x86"      },
+            { "bits": "7:0",  "source": "arg:0:var.offset" }
+          ]
+        },
+        "zp_lit": {
+          "desc": "STX zp (literal addr)  →  0x86, addr8",
+          "operands": ["addr"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0x86" },
+            { "bits": "7:0",  "source": "arg:0:imm"  }
+          ]
+        }
+      }
+    },
+
+    "adc": {
+      "desc": "Add with Carry",
+      "variants": {
+        "imm": {
+          "desc": "ADC #imm8  →  0x69, imm8",
+          "operands": ["imm8"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0x69" },
+            { "bits": "7:0",  "source": "arg:0:imm"  }
+          ]
+        },
+        "zp": {
+          "desc": "ADC zp  →  0x65, addr8",
+          "operands": ["zp"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0x65"      },
+            { "bits": "7:0",  "source": "arg:0:var.offset" }
+          ]
+        },
+        "zp_lit": {
+          "desc": "ADC zp (literal addr)  →  0x65, addr8",
+          "operands": ["addr"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0x65" },
+            { "bits": "7:0",  "source": "arg:0:imm"  }
+          ]
+        }
+      }
+    },
+
+    "sbc": {
+      "desc": "Subtract with Carry",
+      "variants": {
+        "imm": {
+          "desc": "SBC #imm8  →  0xE9, imm8",
+          "operands": ["imm8"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0xE9" },
+            { "bits": "7:0",  "source": "arg:0:imm"  }
+          ]
+        },
+        "zp": {
+          "desc": "SBC zp  →  0xE5, addr8",
+          "operands": ["zp"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0xE5"      },
+            { "bits": "7:0",  "source": "arg:0:var.offset" }
+          ]
+        },
+        "zp_lit": {
+          "desc": "SBC zp (literal addr)  →  0xE5, addr8",
+          "operands": ["addr"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0xE5" },
+            { "bits": "7:0",  "source": "arg:0:imm"  }
+          ]
+        }
+      }
+    },
+
+    "cmp": {
+      "desc": "Compare Accumulator",
+      "variants": {
+        "imm": {
+          "desc": "CMP #imm8  →  0xC9, imm8",
+          "operands": ["imm8"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0xC9" },
+            { "bits": "7:0",  "source": "arg:0:imm"  }
+          ]
+        },
+        "zp": {
+          "desc": "CMP zp  →  0xC5, addr8",
+          "operands": ["zp"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0xC5"      },
+            { "bits": "7:0",  "source": "arg:0:var.offset" }
+          ]
+        },
+        "zp_lit": {
+          "desc": "CMP zp (literal addr)  →  0xC5, addr8",
+          "operands": ["addr"],
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0xC5" },
+            { "bits": "7:0",  "source": "arg:0:imm"  }
+          ]
+        }
+      }
+    },
+
+    "jmp": {
+      "desc": "Jump Absolute",
+      "variants": {
+        "abs": {
+          "desc": "JMP abs  →  0x4C, lo, hi",
+          "size_bits": 24,
+          "fields": [
+            { "bits": "23:16", "source": "const:0x4C"      },
+            { "bits": "15:8",  "source": "label:abs16.lo8" },
+            { "bits": "7:0",   "source": "label:abs16.hi8" }
+          ]
+        }
+      }
+    },
+
+    "jsr": {
+      "desc": "Jump to Subroutine",
+      "variants": {
+        "abs": {
+          "desc": "JSR abs  →  0x20, lo, hi",
+          "size_bits": 24,
+          "fields": [
+            { "bits": "23:16", "source": "const:0x20"      },
+            { "bits": "15:8",  "source": "label:abs16.lo8" },
+            { "bits": "7:0",   "source": "label:abs16.hi8" }
+          ]
+        }
+      }
+    },
+
+    "rts": {
+      "desc": "Return from Subroutine",
+      "variants": {
+        "plain": {
+          "desc": "RTS  →  0x60",
+          "size_bits": 8,
+          "fields": [ { "bits": "7:0", "source": "const:0x60" } ]
+        }
+      }
+    },
+
+    "beq": { "variants": { "rel8": { "desc": "BEQ  →  0xF0, rel8", "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0xF0" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
+    "bne": { "variants": { "rel8": { "desc": "BNE  →  0xD0, rel8", "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0xD0" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
+    "bcc": { "variants": { "rel8": { "desc": "BCC  →  0x90, rel8", "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0x90" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
+    "bcs": { "variants": { "rel8": { "desc": "BCS  →  0xB0, rel8", "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0xB0" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
+
+    "clc": { "variants": { "plain": { "desc": "CLC  →  0x18", "size_bits": 8, "fields": [ { "bits": "7:0", "source": "const:0x18" } ] } } },
+    "sec": { "variants": { "plain": { "desc": "SEC  →  0x38", "size_bits": 8, "fields": [ { "bits": "7:0", "source": "const:0x38" } ] } } },
+    "tax": { "variants": { "plain": { "desc": "TAX  →  0xAA", "size_bits": 8, "fields": [ { "bits": "7:0", "source": "const:0xAA" } ] } } },
+    "txa": { "variants": { "plain": { "desc": "TXA  →  0x8A", "size_bits": 8, "fields": [ { "bits": "7:0", "source": "const:0x8A" } ] } } },
+    "tay": { "variants": { "plain": { "desc": "TAY  →  0xA8", "size_bits": 8, "fields": [ { "bits": "7:0", "source": "const:0xA8" } ] } } },
+    "tya": { "variants": { "plain": { "desc": "TYA  →  0x98", "size_bits": 8, "fields": [ { "bits": "7:0", "source": "const:0x98" } ] } } },
+    "pha": { "variants": { "plain": { "desc": "PHA  →  0x48", "size_bits": 8, "fields": [ { "bits": "7:0", "source": "const:0x48" } ] } } },
+    "pla": { "variants": { "plain": { "desc": "PLA  →  0x68", "size_bits": 8, "fields": [ { "bits": "7:0", "source": "const:0x68" } ] } } },
+    "nop": { "variants": { "plain": { "desc": "NOP  →  0xEA", "size_bits": 8, "fields": [ { "bits": "7:0", "source": "const:0xEA" } ] } } }
+  },
+
+  "syscalls": {},
+
+  "prologue": [],
+
+  "epilogue": [
+    { "insn": "rts", "variant": "plain", "args": [] }
+  ],
+
+  "output": {
+    "format": "bin",
+    "origin": "0x8000",
+    "entry":  "_start"
+  }
+}

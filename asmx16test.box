@@ -1,0 +1,8 @@
+box _start[] : num16 (
+    num16 x: 0;
+
+    asm["mov", "ax", 42];
+    asm["mov", x, "ax"];
+
+    exit[0];
+)

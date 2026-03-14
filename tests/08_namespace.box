@@ -1,0 +1,10 @@
+namespace Math (
+    box square[num16 n] : num16 (
+        ret n * n;
+    )
+)
+
+box _start[] (
+    open Math::square[6];
+    exit[0];
+)

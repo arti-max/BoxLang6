@@ -1,0 +1,8 @@
+box _start[] : num16 (
+    // num16 a: 12;
+    char b: 'a';
+    char c: 13;
+    // num16 v;
+    bit4 bt;
+    exit[0];
+)

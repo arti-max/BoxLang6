@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BoxLang6 Debugger</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header>
+  <span class="logo">BoxLang6</span>
+  <span class="subtitle">Debugger</span>
+  <span id="status" class="status connecting">connecting...</span>
+</header>
+
+<main class="grid">
+
+  <section class="panel" id="panel-source">
+    <div class="panel-title">Source</div>
+    <div id="source-view"></div>
+  </section>
+
+  <section class="panel" id="panel-ast">
+    <div class="panel-title">AST Tree</div>
+    <div id="ast-view"></div>
+  </section>
+
+  <section class="panel" id="panel-stack">
+    <div class="panel-title">Stack / Variables</div>
+    <div id="callstack-view">(empty)</div>
+    <table id="vars-table">
+      <thead><tr><th>Name</th><th>Type</th><th>Value</th><th>Offset</th></tr></thead>
+      <tbody id="vars-body"></tbody>
+    </table>
+  </section>
+
+  <section class="panel" id="panel-hex">
+    <div class="panel-title">Hex View</div>
+    <pre id="hex-view"></pre>
+  </section>
+
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

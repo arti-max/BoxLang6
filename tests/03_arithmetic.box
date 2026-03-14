@@ -1,0 +1,8 @@
+box _start[] (
+    num16 a: 10;
+    num16 b: 3;
+    num16 c: a + b;
+    num16 d: a - b;
+    num16 e: a * b;
+    exit[0];
+)

@@ -1,0 +1,8 @@
+box _start[] : num16 (
+    char x: 0;
+
+    asm["lda", 42];
+    asm["sta", x];
+
+    exit[0];
+)

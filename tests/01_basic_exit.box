@@ -1,0 +1,3 @@
+box _start[] (
+    exit[0];
+)

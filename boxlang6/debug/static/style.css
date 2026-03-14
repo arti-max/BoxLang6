@@ -1,0 +1,205 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #0d1117;
+  color: #c9d1d9;
+  font-family: 'Consolas', 'Fira Code', monospace;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── HEADER ─────────────────────────────────────────────────────────────────── */
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  flex-shrink: 0;
+}
+
+.logo     { font-weight: bold; font-size: 16px; color: #58a6ff; }
+.subtitle { color: #8b949e; }
+
+.status             { margin-left: auto; padding: 2px 10px; border-radius: 10px; font-size: 11px; }
+.status.connecting  { background: #3d2b00; color: #e3b341; }
+.status.ok          { background: #0f2d0f; color: #3fb950; }
+.status.error       { background: #2d0f0f; color: #f85149; }
+
+/* ── GRID ────────────────────────────────────────────────────────────────────── */
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 1px;
+  flex: 1;
+  background: #21262d;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ── PANEL ───────────────────────────────────────────────────────────────────── */
+
+.panel {
+  background: #0d1117;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.panel-title {
+  padding: 5px 12px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  color: #58a6ff;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  flex-shrink: 0;
+}
+
+/* ── SOURCE ──────────────────────────────────────────────────────────────────── */
+
+#source-view {
+  flex: 1;
+  overflow: auto;
+  padding: 2px 0;
+  line-height: 1.0;  /* сбрасываем — управляем через .source-line */
+  white-space: pre;
+  font-size: 12px;
+}
+
+.source-line {
+  display: block;
+  height: 18px;           /* фиксированная высота — никаких лишних отступов */
+  line-height: 18px;
+  padding: 0 8px;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  white-space: pre;
+  overflow: hidden;
+}
+.source-line:hover  { background: #161b22; }
+.source-line.active { background: #1f3a1f; border-left-color: #3fb950; }
+
+.line-num {
+  color: #484f58;
+  user-select: none;
+  margin-right: 12px;
+  display: inline-block;
+  width: 28px;
+  text-align: right;
+}
+
+/* ── AST TREE — Canvas ───────────────────────────────────────────────────────── */
+
+#ast-view {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  min-height: 0;
+}
+
+#ast-view canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── STACK / VARS ────────────────────────────────────────────────────────────── */
+
+#panel-stack {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#callstack-view {
+  padding: 6px 12px;
+  border-bottom: 1px solid #21262d;
+  color: #8b949e;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+#vars-table {
+  width: 100%;
+  border-collapse: collapse;
+  flex: 1;
+  overflow-y: auto;
+  display: block;
+}
+
+#vars-table thead {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
+#vars-table tbody {
+  display: block;
+  overflow-y: auto;
+  max-height: calc(100% - 24px);
+}
+
+#vars-table tr {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
+#vars-table th,
+#vars-table td {
+  padding: 4px 12px;
+  text-align: left;
+  border-bottom: 1px solid #21262d;
+  font-size: 12px;
+}
+
+#vars-table th { color: #8b949e; font-weight: normal; }
+#vars-table td { color: #c9d1d9; }
+
+tr.updated td { animation: flash 0.4s ease; }
+
+@keyframes flash {
+  0%   { background: #1f3a1f; }
+  100% { background: transparent; }
+}
+
+/* ── HEX VIEW ────────────────────────────────────────────────────────────────── */
+
+#hex-view {
+  flex: 1;
+  overflow: auto;
+  padding: 10px 12px;
+  line-height: 1.7;
+  font-size: 12px;
+}
+
+.hex-byte        { display: inline-block; width: 24px; }
+.hex-byte.active { background: #1f3a1f; color: #3fb950; border-radius: 3px; }
+
+/* ── ERROR ───────────────────────────────────────────────────────────────────── */
+
+.err-msg { color: #f85149; }
+
+/* hex линковка */
+.hex-byte {
+  display: inline-block;
+  width: 28px;          /* было 24px — чуть шире */
+  padding-left: 7px;    /* ← добавляем отступ слева */
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.1s;
+}
+.hex-byte.active        { background: #1f3a1f; color: #3fb950; }
+.hex-byte.hex-line-active { background: #1f3a1f; color: #3fb950; }
+.hex-byte.hex-line-hover  { background: #1a2a3a; color: #58a6ff; }
+.hex-byte:hover           { background: #21262d; }
