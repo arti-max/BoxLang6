@@ -1,0 +1,72 @@
+$ifndef X16PROS_INCL_API
+$define X16PROS_INCL_API
+
+$define COLOR_BLACK         0x00
+$define COLOR_DARK_BLUE     0x01
+$define COLOR_DARK_GREEN    0x02
+$define COLOR_DARK_CYAN     0x03
+$define COLOR_DARK_RED      0x04
+$define COLOR_DARK_MAGENTA  0x05
+$define COLOR_BROWN         0x06
+$define COLOR_LIGHT_GRAY    0x07
+$define COLOR_DARK_GRAY     0x08
+$define COLOR_BLUE          0x09
+$define COLOR_GREEN         0x0A
+$define COLOR_CYAN          0x0B
+$define COLOR_RED           0x0C
+$define COLOR_MAGENTA       0x0D
+$define COLOR_YELLOW        0x0E
+$define COLOR_WHITE         0x0F
+
+namespace x16ProsApi (
+
+    box InitOutputAPI[] (
+        open SetTextColor[COLOR_WHITE];
+        asm["mov", "ah", 0x00];
+        asm["int", 0x21];
+    )
+
+    box SetTextColor[char color] (
+        asm["mov", "ah", 0x07];
+        asm["mov", "bl", color];
+        asm["int", 0x21];
+    )
+
+    box PrintStr[char* str] (
+        asm["mov", "ah", 0x08];
+        asm["mov", "si", str];
+        asm["int", 0x21];
+    )
+
+    box PrintStrWithColor[char* str, char color] (
+        open SetTextColor[color];
+        open PrintStr[str];
+    )
+
+    box ClearScreen[] (
+        asm["mov", "ah", 0x06];
+        asm["int", 0x21];
+    )
+
+    box PrintNewline[] (
+        asm["mov", "ah", 0x05];
+        asm["int", 0x21];
+    )
+
+    box FSInit[] (
+        char error: 0;
+        asm["mov", "ah", 0x00];
+        asm["int", 0x22];
+        asm["jc.rel8", @fs_error];
+        asm["jmp.rel8", @fs_ok];
+        @fs_error:
+        error: 1;
+        @fs_ok:
+        ret error;
+    )
+
+
+
+)
+
+$endif

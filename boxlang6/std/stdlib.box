@@ -1,0 +1,24 @@
+$ifndef IS_STDLIB_INCL
+$define IS_STDLIB_INCL
+
+
+namespace std (
+
+    box sqrt[num16 a] : num16 (
+        ret a*a;
+    )
+
+    box printf[char* str] : void (
+        char* char_ptr: str;
+        num16* arg_ptr: &str+2;
+
+        while [char_ptr != 0] (
+            
+
+            char_ptr: char_ptr + 1;
+        )
+    )
+
+)
+
+$endif

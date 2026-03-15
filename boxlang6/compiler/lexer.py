@@ -25,6 +25,8 @@ class T:
     USE         = "USE"          # $use
     IF          = "IF"           # if
     ELSE        = "ELSE"         # else
+    LABEL_DEF   = "LABEL_DEF"    # @fs_error:
+    LABEL_REF   = "LABEL_REF"    # @fs_error
 
     # Types
     TYPE        = "TYPE"         # bit, bit2, bit4, char, num16, num32
@@ -154,7 +156,7 @@ class Lexer:
             self.advance()
 
     def skip_block_comment(self):
-        """/* comment */  — на будущее"""
+        """/* comment */  - на будущее"""
         while self.peek():
             if self.peek() == "*" and self.peek(1) == "/":
                 self.advance(); self.advance()
@@ -163,6 +165,19 @@ class Lexer:
         raise LexerError("Unclosed block comment", self.line, self.col)
 
     # ── scanners ─────────────────────────────────────────────────────────────
+    
+    def read_label(self, line: int, col: int) -> Token:
+        """@name или @name: - метка или ссылка на метку."""
+        buf = ""
+        while self.peek() and (self.peek().isalnum() or self.peek() == "_"):
+            buf += self.advance()
+        if not buf:
+            raise LexerError("Expected label name after '@'", line, col)
+        # смотрим — есть ли ':' после имени
+        if self.peek() == ":":
+            self.advance()
+            return Token(T.LABEL_DEF, buf, line, col)
+        return Token(T.LABEL_REF, buf, line, col)
 
     def read_number(self, line: int, col: int) -> Token:
         """
@@ -269,6 +284,10 @@ class Lexer:
             # Number
             if ch.isdigit():
                 self.tokens.append(self.read_number(line, col))
+                continue
+            
+            if ch == "@":
+                self.tokens.append(self.read_label(line, col))
                 continue
 
             # Ident / keyword / type

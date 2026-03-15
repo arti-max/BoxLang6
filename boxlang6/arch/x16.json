@@ -43,6 +43,7 @@
     "load_var":  { "desc": "ax = [bp+offset]",  "steps": [ { "insn": "mov", "variant": "reg16_bp_off", "args": ["ax", "$bp_offset"]  } ] },
     "store_var": { "desc": "[bp+offset] = ax",  "steps": [ { "insn": "mov", "variant": "bp_off_reg16", "args": ["$bp_offset", "ax"]  } ] },
     "copy_reg":  { "desc": "$dst = $src",        "steps": [ { "insn": "mov", "variant": "reg16_reg16",  "args": ["$dst", "$src"]      } ] },
+    "copy_reg8": { "desc": "$dst = $src (8-bit)", "steps": [ { "insn": "mov", "variant": "reg8_reg8", "args": ["$dst", "$src"] } ] },
     "push_reg":  { "desc": "push $reg",          "steps": [ { "insn": "push","variant": "reg16",        "args": ["$reg"]              } ] },
     "pop_reg":   { "desc": "pop $reg",           "steps": [ { "insn": "pop", "variant": "reg16",        "args": ["$reg"]              } ] },
     "load_var8":  { "desc": "al = [bp+offset]", "steps": [ { "insn": "mov", "variant": "reg8_bp_off", "args": ["al", "$bp_offset"] } ] },
@@ -117,6 +118,7 @@
 
         "reg8_imm8": {
           "desc": "MOV reg8, imm8  →  0xB0+r, imm8",
+          "operands": ["reg8", "imm8"],
           "size_bits": 16,
           "fields": [
             { "bits": "15:11", "source": "const:0x16"   },
@@ -224,6 +226,16 @@
                 { "bits": "5:3",  "source": "arg:0:reg.id" },
                 { "bits": "2:0",  "source": "const:0x7"    }
             ]
+        },
+        "reg8_reg8": {
+          "desc": "MOV reg8, reg8  →  0x8A, ModRM(11,dst,src)",
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0x8A"   },
+            { "bits": "7:6",  "source": "const:0x3"    },
+            { "bits": "5:3",  "source": "arg:0:reg.id" },
+            { "bits": "2:0",  "source": "arg:1:reg.id" }
+          ]
         }
       }
     },
@@ -480,6 +492,16 @@
     "jg":  { "variants": { "rel8": { "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0x7F" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
     "jle": { "variants": { "rel8": { "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0x7E" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
     "jge": { "variants": { "rel8": { "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0x7D" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
+    "jc":  { "variants": { "rel8": { "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0x72" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
+    "jnc": { "variants": { "rel8": { "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0x73" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
+    "jo":  { "variants": { "rel8": { "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0x70" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
+    "jno": { "variants": { "rel8": { "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0x71" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
+    "js":  { "variants": { "rel8": { "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0x78" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
+    "jns": { "variants": { "rel8": { "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0x79" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
+    "jz":  { "variants": { "rel8": { "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0x74" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
+    "jnz": { "variants": { "rel8": { "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0x75" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
+    "ja":  { "variants": { "rel8": { "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0x77" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
+    "jb":  { "variants": { "rel8": { "size_bits": 16, "fields": [ { "bits": "15:8", "source": "const:0x72" }, { "bits": "7:0", "source": "label:rel8" } ] } } },
 
     "int": {
       "variants": {

@@ -39,7 +39,6 @@ class UseDirective(Node):
     """$use x16pros"""
     name: str = ""
 
-
 # ─── Types ───────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -70,6 +69,16 @@ class LabelRef(Node):
     &func_name → LabelRef("func_name")
     Используется в: box* fp: &myFunc;  и  asm["call", &myFunc];
     """
+    name: str = ""
+
+@dataclass
+class AsmLabel(Node):
+    """Объявление метки внутри функции: @fs_error:"""
+    name: str = ""
+
+@dataclass
+class AsmLabelRef(Node):
+    """Ссылка на метку как аргумент: @fs_error"""
     name: str = ""
 
 # ─── Expressions ─────────────────────────────────────────────────────────────

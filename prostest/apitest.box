@@ -1,0 +1,8 @@
+$include <x16pros/api>
+
+box _start[] (
+    open x16ProsApi::InitOutputAPI[];
+    char error: open x16ProsApi::FSInit[];
+
+    ret 0;
+)

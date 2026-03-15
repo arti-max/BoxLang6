@@ -218,6 +218,9 @@ class Parser:
             return self.parse_include()
         if tok.type == T.IF:
             return self.parse_if()
+        if tok.type == T.LABEL_DEF:
+            self.advance()
+            return AsmLabel(name=tok.value, line=tok.line, col=tok.col)
 
         # объявление переменной: начинается с TYPE
         if tok.type == T.TYPE:
@@ -466,6 +469,10 @@ class Parser:
         if tok.type == T.STRING_LIT:
             self.advance()
             return StringLiteral(value=tok.value, line=tok.line, col=tok.col)
+        
+        if tok.type == T.LABEL_REF:
+            self.advance()
+            return AsmLabelRef(name=tok.value, line=tok.line, col=tok.col)
 
         # identifier — может быть IDENT::IDENT
         if tok.type == T.IDENT:
@@ -493,6 +500,28 @@ class Parser:
             expr = self.parse_expr()
             self.expect(T.RPAREN, "Expected ')' to close grouped expression")
             return expr
+        
+        if tok.type == T.OPEN:
+            self.advance()
+            name_tok = self.expect(T.IDENT, "Expected function name after open")
+            if self.match(T.SCOPE):
+                ns     = name_tok.value
+                name   = self.expect(T.IDENT, "Expected function name after ::").value
+                target = ScopedIdentifier(namespace=ns, name=name,
+                                          line=name_tok.line, col=name_tok.col)
+            else:
+                target = Identifier(name=name_tok.value,
+                                    line=name_tok.line, col=name_tok.col)
+            self.expect(T.LBRACKET, "Expected '[' after function name")
+            args = []
+            if not self.check(T.RBRACKET):
+                args.append(self.parse_expr())
+                while self.match(T.COMMA):
+                    args.append(self.parse_expr())
+            self.expect(T.RBRACKET, "Expected ']' to close call args")
+            # НЕТ expect SEMICOLON — мы внутри выражения
+            return FunctionCall(target=target, args=args,
+                                line=tok.line, col=tok.col)
 
         raise ParseError("Unexpected token in expression", tok)
     

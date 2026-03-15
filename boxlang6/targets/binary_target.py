@@ -160,7 +160,8 @@ class BinaryTarget(BaseTarget):
         self._relocs:      List[Relocation]     = []
         self._var_offsets: Dict[str, int]       = {}
         self._var_regs:    Dict[str, str]       = {}
-        self._var_sizes:   Dict[str, int]       = {}   # ← новое
+        self._var_sizes:   Dict[str, int]       = {}
+        self._var_types:   Dict[str, TypeRef]   = {}
         self._stack_off:   int                  = 0
         self._addr_off:    int                  = 0
         self._free_regs:   List[str]            = []
@@ -175,6 +176,11 @@ class BinaryTarget(BaseTarget):
         self._buf.clear()
         self._labels.clear()
         self._relocs.clear()
+
+        # jmp _start в самом начале .com файла
+        if self.output_format() == "com":
+            entry = self.entry_point()   # "_start"
+            self._op("jump", {"$label": entry})
 
         for node in program.body:
             self._emit_node(node)
@@ -360,7 +366,6 @@ class BinaryTarget(BaseTarget):
         arch_bits = self.arch.get("bits", 16)
         size      = self._type_size(type_ref)
 
-        # проверяем размер одного элемента, не всего массива
         elem_ref  = TypeRef(base=type_ref.base, pointer=type_ref.pointer, array=None)
         elem_size = self._type_size(elem_ref)
         elem_bits = elem_size * 8
@@ -369,9 +374,11 @@ class BinaryTarget(BaseTarget):
                 f"Type '{type_ref.base}' is {elem_bits}-bit but arch "
                 f"'{self.arch_name}' is only {arch_bits}-bit"
             )
-        
+
         if type_ref.array:
             self._var_elem_sizes[name] = self._type_size(TypeRef(base=type_ref.base))
+
+        self._var_types[name] = type_ref   # ← сохраняем тип
 
         mode = self._storage_mode()
 
@@ -407,15 +414,43 @@ class BinaryTarget(BaseTarget):
                     alloc["args"], {"$var_addr": addr, "$size": size}
                 )
                 self._insn(alloc["insn"], alloc["variant"], args)
+                
+    def _load_var8_to_work(self, name: str, node: Node):
+        """Загрузить 8-битную переменную в al."""
+        mode = self._storage_mode()
+
+        if mode == "stack":
+            off = self._var_offsets.get(name)
+            if off is None:
+                raise CodeGenError(f"Unknown variable '{name}'", node)
+            self._op("load_var8", {"$bp_offset": off})
+
+        elif mode == "registers":
+            reg = self._var_regs.get(name)
+            if reg is None:
+                raise CodeGenError(f"Unknown variable '{name}'", node)
+            # регистровый режим — просто copy в al если не совпадает
+            al = "al"
+            if reg != al:
+                self._op("copy_reg", {"$src": reg, "$dst": al})
+
+        else:
+            addr = self._var_offsets.get(name)
+            if addr is None:
+                raise CodeGenError(f"Unknown variable '{name}'", node)
+            self._op("load_var8", {"$var_addr": addr})
 
     def _load_var_to_work(self, name: str, node: Node):
         mode = self._storage_mode()
 
         if mode == "stack":
-            off  = self._var_offsets.get(name)
+            off = self._var_offsets.get(name)
             if off is None:
                 raise CodeGenError(f"Unknown variable '{name}'", node)
-            size = self._var_sizes.get(name, 2)
+            size     = self._var_sizes.get(name, 2)
+            var_type = self._var_types.get(name)
+            if var_type and var_type.pointer:
+                size = self.arch.get("bits", 16) // 8  # указатель всегда 16-бит
             if size == 1:
                 self._op("load_var8", {"$bp_offset": off})
             else:
@@ -432,7 +467,10 @@ class BinaryTarget(BaseTarget):
             addr = self._var_offsets.get(name)
             if addr is None:
                 raise CodeGenError(f"Unknown variable '{name}'", node)
-            size = self._var_sizes.get(name, 1)
+            size     = self._var_sizes.get(name, 1)
+            var_type = self._var_types.get(name)
+            if var_type and var_type.pointer:
+                size = self.arch.get("bits", 16) // 8
             if size == 1:
                 self._op("load_var8", {"$var_addr": addr})
             else:
@@ -442,10 +480,13 @@ class BinaryTarget(BaseTarget):
         mode = self._storage_mode()
 
         if mode == "stack":
-            off  = self._var_offsets.get(name)
+            off = self._var_offsets.get(name)
             if off is None:
                 raise CodeGenError(f"Unknown variable '{name}'", node)
-            size = self._var_sizes.get(name, 2)
+            size     = self._var_sizes.get(name, 2)
+            var_type = self._var_types.get(name)
+            if var_type and var_type.pointer:
+                size = self.arch.get("bits", 16) // 8
             if size == 1:
                 self._op("store_var8", {"$bp_offset": off})
             else:
@@ -462,7 +503,10 @@ class BinaryTarget(BaseTarget):
             addr = self._var_offsets.get(name)
             if addr is None:
                 raise CodeGenError(f"Unknown variable '{name}'", node)
-            size = self._var_sizes.get(name, 1)
+            size     = self._var_sizes.get(name, 1)
+            var_type = self._var_types.get(name)
+            if var_type and var_type.pointer:
+                size = self.arch.get("bits", 16) // 8
             if size == 1:
                 self._op("store_var8", {"$var_addr": addr})
             else:
@@ -477,6 +521,8 @@ class BinaryTarget(BaseTarget):
             raise CodeGenError(f"No emitter for {type(node).__name__}", node)
         emitter(node)
 
+    
+    
     # ── top level ─────────────────────────────────────────────────────────────
 
     def _emit_Program(self, node: Program):
@@ -500,20 +546,22 @@ class BinaryTarget(BaseTarget):
     # ── function ──────────────────────────────────────────────────────────────
 
     def _emit_FunctionDef(self, node: FunctionDef):
-        prev_offsets = self._var_offsets.copy()
-        prev_regs    = self._var_regs.copy()
-        prev_sizes   = self._var_sizes.copy()
-        prev_stack   = self._stack_off
-        prev_addr    = self._addr_off          # ← новое
-        prev_free    = self._free_regs.copy()
+        prev_offsets    = self._var_offsets.copy()
+        prev_regs       = self._var_regs.copy()
+        prev_sizes      = self._var_sizes.copy()
+        prev_types      = self._var_types.copy()        # ← новое
+        prev_stack      = self._stack_off
+        prev_addr       = self._addr_off
+        prev_free       = self._free_regs.copy()
         prev_elem_sizes = self._var_elem_sizes.copy()
 
-        self._var_offsets = {}
-        self._var_regs    = {}
-        self._var_sizes   = {}
-        self._stack_off   = 0
-        self._addr_off    = 0                  # ← сброс
-        self._free_regs   = list(self.arch.get("var_regs", []))
+        self._var_offsets    = {}
+        self._var_regs       = {}
+        self._var_sizes      = {}
+        self._var_types      = {}                       # ← новое
+        self._stack_off      = 0
+        self._addr_off       = 0
+        self._free_regs      = list(self.arch.get("var_regs", []))
 
         label = self._scoped_label(node)
         self._def_label(label)
@@ -530,9 +578,11 @@ class BinaryTarget(BaseTarget):
                 off = base_off + i * stack_align
                 self._var_offsets[param.name] = off
                 self._var_sizes[param.name]   = self._type_size(param.type_ref)
+                self._var_types[param.name]   = param.type_ref   # ← новое
             else:
                 if mode == "stack":
                     self._alloc_var(param.name, param.type_ref)
+                    # _alloc_var уже сохраняет _var_types
                     if i < len(arg_regs):
                         src = arg_regs[i]
                         if src != self.return_reg():
@@ -541,8 +591,8 @@ class BinaryTarget(BaseTarget):
                 elif mode == "registers":
                     if i < len(arg_regs):
                         self._var_regs[param.name] = arg_regs[i]
+                    self._var_types[param.name] = param.type_ref   # ← новое
                 else:
-                    # address mode: аллоцируем и копируем из arg reg
                     self._alloc_var(param.name, param.type_ref)
                     if i < len(arg_regs):
                         src = arg_regs[i]
@@ -559,12 +609,13 @@ class BinaryTarget(BaseTarget):
         if not has_explicit_ret:
             self._emit_epilogue()
 
-        self._var_offsets = prev_offsets
-        self._var_regs    = prev_regs
-        self._var_sizes   = prev_sizes
-        self._stack_off   = prev_stack
-        self._addr_off    = prev_addr           # ← восстановить
-        self._free_regs   = prev_free
+        self._var_offsets    = prev_offsets
+        self._var_regs       = prev_regs
+        self._var_sizes      = prev_sizes
+        self._var_types      = prev_types               # ← новое
+        self._stack_off      = prev_stack
+        self._addr_off       = prev_addr
+        self._free_regs      = prev_free
         self._var_elem_sizes = prev_elem_sizes
 
     def _scoped_label(self, node: FunctionDef) -> str:
@@ -602,6 +653,9 @@ class BinaryTarget(BaseTarget):
                     self._op("store_var", {"$var_addr": elem_addr})
 
     # ── statements ────────────────────────────────────────────────────────────
+    
+    def _emit_AsmLabel(self, node: AsmLabel):
+        self._def_label(node.name)
 
     def _emit_VarDecl(self, node: VarDecl):
         self._alloc_var(node.name, node.type_ref)
@@ -712,9 +766,16 @@ class BinaryTarget(BaseTarget):
                 self._op("push_reg", {"$reg": self.return_reg()})
 
         if isinstance(node.target, Identifier):
-            label = node.target.name
+            name = node.target.name
+            if self._namespace_prefix:
+                # внутри namespace — предпочитаем scoped имя
+                label = f"{self._namespace_prefix}__{name}"
+            else:
+                label = name
+
         elif isinstance(node.target, ScopedIdentifier):
             label = f"{node.target.namespace}__{node.target.name}"
+
         else:
             raise CodeGenError("Unsupported call target", node)
 
@@ -770,12 +831,13 @@ class BinaryTarget(BaseTarget):
         dst_reg = None
         if node.args:
             first = node.args[0]
-            if isinstance(first, Literal) and isinstance(first.value, str):
+            if isinstance(first, StringLiteral):          # ← добавить
+                dst_reg = first.value
+            elif isinstance(first, Literal) and isinstance(first.value, str):
                 dst_reg = first.value
             elif isinstance(first, Identifier) and \
                 (first.name in self._var_offsets or first.name in self._var_regs) and \
                 len(node.args) > 1:
-                # переменная на первом месте + есть src → это запись в переменную
                 dst_var = first.name
 
         # если dst_var — сначала резолвим src аргументы, потом store
@@ -806,29 +868,37 @@ class BinaryTarget(BaseTarget):
         # обычный путь — читаем все аргументы
         resolved = []
         for i, arg in enumerate(node.args):
-            if isinstance(arg, Literal) and isinstance(arg.value, str):
+            if isinstance(arg, StringLiteral):
+                resolved.append(arg.value)
+
+            elif isinstance(arg, Literal) and isinstance(arg.value, str):
                 resolved.append(arg.value)
 
             elif isinstance(arg, Literal):
                 resolved.append(arg.value)
 
+            elif isinstance(arg, AsmLabelRef):
+                resolved.append(arg.name)
+
             elif isinstance(arg, Identifier):
                 if arg.name in self._var_offsets or arg.name in self._var_regs:
                     mode = self._storage_mode()
                     if mode == "stack":
-                        self._load_var_to_work(arg.name, node)
-                        work = self.return_reg()
-                        if dst_reg and dst_reg != work and i > 0:
-                            self._op("copy_reg", {"$src": work, "$dst": dst_reg})
-                            resolved.append(dst_reg)
+                        var_type = self._var_types.get(arg.name)
+                        is8 = (var_type is not None and
+                            var_type.base in ("char", "bit", "bit2", "bit4") and
+                            not var_type.pointer)
+                        if is8:
+                            self._load_var8_to_work(arg.name, node)
+                            resolved.append("al")
                         else:
-                            resolved.append(work)
+                            self._load_var_to_work(arg.name, node)
+                            resolved.append(self.return_reg())
                     else:
                         resolved.append(VarAddr(self._var_offsets[arg.name]))
 
                 elif self.is_reg(arg.name):
                     resolved.append(arg.name)
-
                 else:
                     raise CodeGenError(f"Unknown variable or register '{arg.name}' in asm", node)
 
@@ -840,14 +910,22 @@ class BinaryTarget(BaseTarget):
                 resolved.append(self.return_reg())
 
         if variant is None:
-            arg_types = [self._classify_arg(a) for a in resolved]
-            variant   = self._match_variant(insn_name, arg_types, node)
+            arg_types  = [self._classify_arg(a) for a in resolved]
+            # достаём имя метки для rel8/rel16 оптимизации
+            label_hint = None
+            for a in resolved:
+                if isinstance(a, str) and not self.is_reg(a):
+                    label_hint = a
+                    break
+            variant = self._match_variant(insn_name, arg_types, node, label_hint)
 
         self._insn(insn_name, variant, resolved)
 
     def _classify_arg(self, arg) -> str:
-        if isinstance(arg, str) and self.is_reg(arg):
-            return f"reg{self.reg_bits(arg)}"
+        if isinstance(arg, str):
+            if self.is_reg(arg):
+                return f"reg{self.reg_bits(arg)}"
+            return "label"    # не регистр — метка или имя
         if isinstance(arg, VarAddr):
             return "addr"
         if isinstance(arg, int):
@@ -856,13 +934,13 @@ class BinaryTarget(BaseTarget):
         return "imm"
 
 
-    def _match_variant(self, insn: str, arg_types: list, node: Node) -> str:
+    def _match_variant(self, insn: str, arg_types: list, node: Node,
+                    label_name: str = None) -> str:
         insn_def = self._insns.get(insn)
         if insn_def is None:
             raise CodeGenError(f"Unknown instruction '{insn}'", node)
         variants = insn_def.get("variants", {})
 
-        # 1. нет аргументов → берём "plain" или единственный вариант
         if not arg_types:
             if "plain" in variants:
                 return "plain"
@@ -870,54 +948,84 @@ class BinaryTarget(BaseTarget):
                 return next(iter(variants))
             raise CodeGenError(
                 f"Instruction '{insn}' has no args but no 'plain' variant. "
-                f"Available: {list(variants.keys())}",
-                node
+                f"Available: {list(variants.keys())}", node
             )
 
-        # 2. прямое совпадение по ключу
         key = "_".join(arg_types)
         if key in variants:
             return key
 
-        # 3. совпадение по полю "operands"
         for vname, vdata in variants.items():
             if vdata.get("operands") == arg_types:
                 return vname
 
-        # 4. нечёткий матчинг: imm8/imm16/imm взаимозаменяемы, reg* совместимы
-        def types_compatible(expected: list, actual: list) -> bool:
+        IMM   = {"imm8", "imm16", "imm"}
+        LABEL = {"label", "rel8", "rel16", "abs16"}
+
+        def type_match(expected: str, actual: str) -> bool:
+            if expected == actual:                        return True
+            if expected in IMM   and actual in IMM:       return True
+            if expected in LABEL and actual in LABEL:     return True
+            return False
+
+        def types_compatible(vname: str, actual: list) -> bool:
+            parts = vname.split("_")
+            TYPE_TOKENS = {"reg8", "reg16", "imm8", "imm16", "imm",
+                        "rel8", "rel16", "abs16", "label", "addr"}
+            expected = []
+            i = 0
+            while i < len(parts):
+                if parts[i] in TYPE_TOKENS:
+                    expected.append(parts[i])
+                i += 1
             if len(expected) != len(actual):
                 return False
-            IMM = {"imm8", "imm16", "imm"}
-            for e, a in zip(expected, actual):
-                if e == a:
-                    continue
-                if e in IMM and a in IMM:
-                    continue
-                if e.startswith("reg") and a.startswith("reg"):
-                    continue
-                return False
-            return True
+            return all(type_match(e, a) for e, a in zip(expected, actual))
+
+        # ── rel8 / rel16 оптимизация ──────────────────────────────────────────
+        # если есть и rel8 и rel16 — выбираем по дистанции
+        if "label" in arg_types or any(t in LABEL for t in arg_types):
+            has_rel8  = any("rel8"  in v for v in variants)
+            has_rel16 = any("rel16" in v for v in variants)
+
+            if has_rel8 and has_rel16 and label_name:
+                target = self._labels.get(label_name)
+                if target is not None:
+                    # метка уже известна — считаем delta для rel8 варианта
+                    # размер rel8 инструкции = 2 байта
+                    insn_end = self._pos() + 2
+                    delta = target - insn_end
+                    if -128 <= delta <= 127:
+                        # ищем вариант с rel8
+                        for vname in variants:
+                            if "rel8" in vname:
+                                return vname
+                    else:
+                        # ищем вариант с rel16
+                        for vname in variants:
+                            if "rel16" in vname:
+                                return vname
+                else:
+                    # forward reference — берём rel16 (безопасно)
+                    for vname in variants:
+                        if "rel16" in vname:
+                            return vname
 
         for vname, vdata in variants.items():
-            operands = vdata.get("operands")
-            if operands is not None and types_compatible(operands, arg_types):
+            if types_compatible(vname, arg_types):
                 return vname
 
-        # 5. промоут imm8↔imm16 в ключе
         PROMOTE = {"imm8": "imm16", "imm16": "imm8", "imm": "imm8"}
         promoted_key = "_".join(PROMOTE.get(t, t) for t in arg_types)
         if promoted_key in variants:
             return promoted_key
 
-        # 6. единственный вариант — берём его (инструкции с одним режимом)
         if len(variants) == 1:
             return next(iter(variants))
 
         raise CodeGenError(
             f"No variant of '{insn}' matches {arg_types}. "
-            f"Available: {list(variants.keys())}",
-            node
+            f"Available: {list(variants.keys())}", node
         )
         
     def _emit_IfStmt(self, node: IfStmt):
@@ -1154,6 +1262,10 @@ class BinaryTarget(BaseTarget):
         raise CodeGenError("Cannot find tmp register for expression")
 
     def _type_size(self, type_ref: TypeRef) -> int:
+        # указатель всегда размер слова архитектуры
+        if type_ref.pointer:
+            return self.arch.get("bits", 16) // 8
+
         sizes = {
             "bit":   1,
             "bit2":  1,
