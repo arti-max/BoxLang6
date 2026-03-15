@@ -162,11 +162,12 @@ class BinaryTarget(BaseTarget):
         self._var_regs:    Dict[str, str]       = {}
         self._var_sizes:   Dict[str, int]       = {}   # ← новое
         self._stack_off:   int                  = 0
-        self._addr_off:    int            = 0
+        self._addr_off:    int                  = 0
         self._free_regs:   List[str]            = []
         self._encoder:     BitEncoder           = BitEncoder(self)
         self._lbl_counter: int                  = 0
         self._namespace_prefix: str             = ""
+        self._var_elem_sizes: Dict[str, int]    = {}
 
     # ── public entry ──────────────────────────────────────────────────────────
 
@@ -358,13 +359,19 @@ class BinaryTarget(BaseTarget):
     def _alloc_var(self, name: str, type_ref: TypeRef):
         arch_bits = self.arch.get("bits", 16)
         size      = self._type_size(type_ref)
-        type_bits = size * 8
 
-        if type_bits > arch_bits:
+        # проверяем размер одного элемента, не всего массива
+        elem_ref  = TypeRef(base=type_ref.base, pointer=type_ref.pointer, array=None)
+        elem_size = self._type_size(elem_ref)
+        elem_bits = elem_size * 8
+        if elem_bits > arch_bits:
             raise CodeGenError(
-                f"Type '{type_ref.base}' is {type_bits}-bit but arch "
+                f"Type '{type_ref.base}' is {elem_bits}-bit but arch "
                 f"'{self.arch_name}' is only {arch_bits}-bit"
             )
+        
+        if type_ref.array:
+            self._var_elem_sizes[name] = self._type_size(TypeRef(base=type_ref.base))
 
         mode = self._storage_mode()
 
@@ -487,6 +494,8 @@ class BinaryTarget(BaseTarget):
     def _emit_IncludeFile(self, node): pass
     def _emit_ShelfDef(self,    node): pass
     def _emit_UseDirective(self, node): pass
+    def _emit_StringLiteral(self, node): pass
+    def _emit_ArrayInit(self, node):     pass
 
     # ── function ──────────────────────────────────────────────────────────────
 
@@ -497,6 +506,7 @@ class BinaryTarget(BaseTarget):
         prev_stack   = self._stack_off
         prev_addr    = self._addr_off          # ← новое
         prev_free    = self._free_regs.copy()
+        prev_elem_sizes = self._var_elem_sizes.copy()
 
         self._var_offsets = {}
         self._var_regs    = {}
@@ -555,26 +565,90 @@ class BinaryTarget(BaseTarget):
         self._stack_off   = prev_stack
         self._addr_off    = prev_addr           # ← восстановить
         self._free_regs   = prev_free
+        self._var_elem_sizes = prev_elem_sizes
 
     def _scoped_label(self, node: FunctionDef) -> str:
         if self._namespace_prefix:
             return f"{self._namespace_prefix}__{node.name}"
         return node.name
+    
+    def _emit_array_init(self, node: VarDecl):
+        base_addr = self._var_offsets[node.name]
+        elem_size = self._type_size(TypeRef(base=node.type_ref.base))
+        mode      = self._storage_mode()
+
+        if isinstance(node.value, StringLiteral):
+            elements = [Literal(value=ord(c)) for c in node.value.value]
+        elif isinstance(node.value, ArrayInit):
+            elements = node.value.elements
+        else:
+            raise CodeGenError("Array initializer must be string or {}", node)
+
+        for i, elem in enumerate(elements):
+            self._emit_expr_to_work(elem)
+            offset = i * elem_size
+
+            if mode == "stack":
+                elem_off = base_addr - offset   # стек растёт вниз
+                if elem_size == 1:
+                    self._op("store_var8", {"$bp_offset": elem_off})
+                else:
+                    self._op("store_var", {"$bp_offset": elem_off, "$reg": self.return_reg()})
+            else:
+                elem_addr = base_addr + offset
+                if elem_size == 1:
+                    self._op("store_var8", {"$var_addr": elem_addr})
+                else:
+                    self._op("store_var", {"$var_addr": elem_addr})
 
     # ── statements ────────────────────────────────────────────────────────────
 
     def _emit_VarDecl(self, node: VarDecl):
         self._alloc_var(node.name, node.type_ref)
-        if node.value:
+        if node.value is None:
+            return
+
+        if node.type_ref.array is not None:
+            self._emit_array_init(node)
+        else:
             self._emit_expr_to_work(node.value)
             self._store_work_to_var(node.name, node)
 
-    def _emit_Assignment(self, node: Assignment):
-        self._emit_expr_to_work(node.value)
+    def _emit_Assignment(self, node):
         if isinstance(node.target, Identifier):
+            self._emit_expr_to_work(node.value)
             self._store_work_to_var(node.target.name, node)
+
+        elif isinstance(node.target, UnaryOp) and node.target.op == "*":
+            ops        = self.arch.get("ops", {})
+            ptr_steps  = ops.get("ptr_store", {}).get("steps", [])
+            ptr_uses_stack = any(s.get("insn") == "pla" for s in ptr_steps)
+
+            if ptr_uses_stack:
+                # 6502: push addr, value в A, ptr_store делает PLA
+                self._emit_expr_to_work(node.target.operand)
+                self._op("push_reg", {"$reg": self.return_reg()})
+                self._emit_expr_to_work(node.value)
+                self._op("ptr_store", {})
+
+            elif self.arch.get("tmp_regs"):
+                # x86: push value, вычислить addr, pop value в tmp, ptr_store
+                self._emit_expr_to_work(node.value)
+                self._op("push_reg", {"$reg": self.return_reg()})
+                self._emit_expr_to_work(node.target.operand)
+                val_reg = self._pick_tmp_reg()
+                self._op("pop_reg",  {"$reg": val_reg})
+                self._op("ptr_store", {})
+
+            else:
+                raise CodeGenError(
+                    "ptr_store: arch must define either 'pla' in ptr_store steps "
+                    "or 'tmp_regs'", node
+                )
+
         elif isinstance(node.target, IndexAccess):
-            raise CodeGenError("Index assignment not yet supported", node)
+            self._emit_index_store(node)
+
         else:
             raise CodeGenError(
                 f"Unsupported assignment target: {type(node.target).__name__}", node
@@ -900,8 +974,7 @@ class BinaryTarget(BaseTarget):
 
             # правый сейчас в work, кладём во второй регистр
             right_tmp = self._pick_tmp_reg()
-            self._op("copy_reg",
-                     {"$src": self.return_reg(), "$dst": right_tmp})
+            self._op("copy_reg", {"$src": self.return_reg(), "$dst": right_tmp})
 
             # восстанавливаем левый
             self._op("pop_reg", {"$reg": self.return_reg()})
@@ -941,11 +1014,95 @@ class BinaryTarget(BaseTarget):
         elif isinstance(node, FunctionCall):
             # вызов как выражение — результат уже в return reg
             self._emit_FunctionCall(node)
+            
+        elif isinstance(node, IndexAccess):
+            if not isinstance(node.target, Identifier):
+                raise CodeGenError("Index access: array must be identifier", node)
+            arr_name  = node.target.name
+            elem_size = self._var_elem_sizes.get(arr_name, 1)
+            self._emit_array_addr(arr_name, node.index, elem_size)
+            self._op("ptr_load", {"$ptr_reg": self.return_reg()})
+
+        elif isinstance(node, FieldAccess):
+            if node.field_name == "length":
+                if not isinstance(node.target, Identifier):
+                    raise CodeGenError(".length: must be identifier", node)
+                arr_name = node.target.name
+                size      = self._var_sizes.get(arr_name, 0)
+                elem_size = self._var_elem_sizes.get(arr_name, 1)
+                length    = size // elem_size
+                self._op("load_imm", {"$value": length})
+            else:
+                raise CodeGenError(f"Field '{node.field_name}' not supported yet", node)
 
         else:
             raise CodeGenError(
                 f"Cannot emit expr {type(node).__name__} to work register", node
             )
+            
+    def _emit_index_store(self, node: Assignment):
+        # target = arr[i], value = expr
+        arr   = node.target.target
+        index = node.target.index
+        if not isinstance(arr, Identifier):
+            raise CodeGenError("Index assignment: array must be identifier", node)
+
+        base_addr = self._var_offsets.get(arr.name)
+        if base_addr is None:
+            raise CodeGenError(f"Unknown array '{arr.name}'", node)
+
+        # elem_size из _var_sizes / type_ref не хранится напрямую — считаем
+        # через полный размер / длину массива. Лучше хранить _var_elem_sizes
+        elem_size = self._var_elem_sizes.get(arr.name, 1)
+
+        ops      = self.arch.get("ops", {})
+        ptr_steps = ops.get("ptr_store", {}).get("steps", [])
+        ptr_uses_stack = any(s.get("insn") == "pla" for s in ptr_steps)
+
+        if ptr_uses_stack:
+            # 6502: вычислить addr = base + i*elem_size → push, value → A
+            self._emit_array_addr(arr.name, index, elem_size)
+            self._op("push_reg", {"$reg": self.return_reg()})
+            self._emit_expr_to_work(node.value)
+            self._op("ptr_store", {})
+        else:
+            # x86: push value, вычислить addr, pop value в tmp
+            self._emit_expr_to_work(node.value)
+            self._op("push_reg", {"$reg": self.return_reg()})
+            self._emit_array_addr(arr.name, index, elem_size)
+            val_reg = self._pick_tmp_reg()
+            self._op("pop_reg", {"$reg": val_reg})
+            self._op("ptr_store", {})
+            
+    def _emit_array_addr(self, arr_name: str, index: Node, elem_size: int):
+        base_addr = self._var_offsets[arr_name]
+        mode      = self._storage_mode()
+
+        # загружаем базовый адрес для ВСЕХ режимов
+        if mode == "stack":
+            self._op("load_addr", {"$offset": base_addr})
+        else:  # address / zeropage
+            self._op("load_addr", {"$offset": base_addr})
+
+        # при index == 0 просто возвращаем базовый адрес
+        if isinstance(index, Literal) and index.value == 0:
+            return
+
+        self._op("push_reg", {"$reg": self.return_reg()})
+        self._emit_expr_to_work(index)
+
+        if elem_size > 1:
+            self._op("push_reg", {"$reg": self.return_reg()})
+            self._op("load_imm",  {"$value": elem_size})
+            right_tmp = self._pick_tmp_reg()
+            self._op("copy_reg", {"$src": self.return_reg(), "$dst": right_tmp})
+            self._op("pop_reg",  {"$reg": self.return_reg()})
+            self._op("mul",      {"$right": right_tmp})
+
+        right_tmp = self._pick_tmp_reg()
+        self._op("copy_reg", {"$src": self.return_reg(), "$dst": right_tmp})
+        self._op("pop_reg",  {"$reg": self.return_reg()})
+        self._op("add",      {"$right": right_tmp})  # всегда ADD, не SUB
 
     # ── conditional jumps ─────────────────────────────────────────────────────
 
@@ -989,19 +1146,11 @@ class BinaryTarget(BaseTarget):
     # ── helpers ───────────────────────────────────────────────────────────────
 
     def _pick_tmp_reg(self) -> str:
-        """
-        Выбрать временный регистр для промежуточных вычислений.
-        Для x86 — bx (второй arg-регистр, не рабочий).
-        """
-        args = self.arg_regs()
         work = self.return_reg()
-        for r in args:
+        candidates = self.arch.get("tmp_regs", [])
+        for r in candidates:
             if r != work:
                 return r
-        # если нет других — используем первый preserved
-        preserved = self.arch["calling_convention"].get("preserved", [])
-        if preserved:
-            return preserved[0]
         raise CodeGenError("Cannot find tmp register for expression")
 
     def _type_size(self, type_ref: TypeRef) -> int:

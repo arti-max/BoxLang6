@@ -177,6 +177,10 @@ class SemanticAnalyzer:
 
         self.pop_scope()
         self.current_func = prev_func
+        
+    def visit_ArrayInit(self, node: ArrayInit):
+        for el in node.elements:
+            self.visit(el)
 
     # ── statements ────────────────────────────────────────────────────────────
 
@@ -184,9 +188,57 @@ class SemanticAnalyzer:
         self._check_type(node.type_ref, node)
         if node.value:
             self.visit(node.value)
+            self._check_value_fits(node.type_ref, node.value, node)
+            # проверка строки: длина не может превышать размер массива
+            if node.type_ref.array is not None and isinstance(node.value, StringLiteral):
+                if len(node.value.value) > node.type_ref.array:
+                    raise SemanticError(
+                        f"String length {len(node.value.value)} exceeds "
+                        f"array size {node.type_ref.array}", node
+                    )
+            # проверка ArrayInit
+            if node.type_ref.array is not None and isinstance(node.value, ArrayInit):
+                if len(node.value.elements) > node.type_ref.array:
+                    raise SemanticError(
+                        f"Array initializer has {len(node.value.elements)} elements "
+                        f"but array size is {node.type_ref.array}", node
+                    )
         self.current_scope.define(
             Symbol(node.name, "var", node.type_ref), node
         )
+        
+    def _check_value_fits(self, type_ref: TypeRef, value: Node, node: Node):
+        """Проверяет что литерал помещается в тип. Для массивов проверяет каждый элемент."""
+        if type_ref.array is not None:
+            # ArrayInit — проверяем каждый элемент
+            if isinstance(value, ArrayInit):
+                elem_ref = TypeRef(base=type_ref.base, pointer=type_ref.pointer, array=None)
+                for el in value.elements:
+                    self._check_value_fits(elem_ref, el, node)
+            # StringLiteral — char уже гарантированно 0..127, пропускаем
+            return
+
+        if not isinstance(value, Literal) or not isinstance(value.value, int):
+            return
+
+        v = value.value
+        limits = {
+            "bit":   (0, 1),
+            "bit2":  (0, 3),
+            "bit4":  (0, 15),
+            "char":  (0, 255),
+            "num16": (0, 65535),
+            "num32": (0, 4294967295),
+        }
+        lo, hi = limits.get(type_ref.base, (None, None))
+        if lo is None:
+            return
+        if not (lo <= v <= hi):
+            raise SemanticError(
+                f"Value {v} overflows type '{type_ref.base}' "
+                f"(valid range {lo}..{hi})",
+                node
+            )
 
     def visit_Assignment(self, node: Assignment):
         self.visit(node.target)
@@ -315,11 +367,23 @@ class SemanticAnalyzer:
         self.visit(node.index)
 
     def visit_FieldAccess(self, node: FieldAccess):
+        # arr.length — compile-time константа, target должен быть массивом
+        if node.field_name == "length":
+            if isinstance(node.target, Identifier):
+                sym = self.current_scope.lookup(node.target.name)
+                if sym and sym.type_ref and sym.type_ref.array is None:
+                    raise SemanticError(
+                        f"'{node.target.name}' is not an array, "
+                        f"cannot access .length", node
+                    )
+            return
         self.visit(node.target)
-        # проверка поля будет глубже, когда добавим type inference
 
     def visit_Literal(self, node: Literal): # type: ignore
         pass  # литерал всегда валиден
+    
+    def visit_StringLiteral(self, node: StringLiteral):
+        pass  # всегда валидна
 
     # ── helpers ───────────────────────────────────────────────────────────────
 

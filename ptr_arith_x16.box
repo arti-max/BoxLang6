@@ -1,0 +1,15 @@
+box _start[] : num16 (
+    num16 x: 10;
+    num16 y: 20;
+    num16 z: 30;
+
+    num16* p: &x;
+
+    num16 a: *(p);
+    num16 b: *(p+2);
+    num16 c: *(p+4);
+
+    *(p+2): 99;
+
+    exit[0];
+)

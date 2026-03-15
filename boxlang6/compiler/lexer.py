@@ -37,6 +37,8 @@ class T:
     RPAREN      = "RPAREN"       # )
     LBRACKET    = "LBRACKET"     # [
     RBRACKET    = "RBRACKET"     # ]
+    LBRACE      = "LBRACE"       # {
+    RBRACE      = "RBRACE"       # }
     LANGLE      = "LANGLE"       # <  (для $include <stdlib>)
     RANGLE      = "RANGLE"       # >
     COLON       = "COLON"        # :
@@ -188,16 +190,18 @@ class Lexer:
         return Token(T.CHAR_LIT, ch, line, col)
 
     def read_string_lit(self, line: int, col: int) -> Token:
-        """
-        "some string with %v"
-        Поддерживает \n \t \\
-        """
         buf = ""
         while self.peek() and self.peek() != '"':
             ch = self.advance()
-            if ch == "\\" :
+            if ch == "\\":
                 esc = self.advance()
-                buf += {"n": "\n", "t": "\t", "\\": "\\"}.get(esc, esc)
+                if esc == "x":
+                    # \xNN — два hex символа
+                    h1 = self.advance()
+                    h2 = self.advance()
+                    buf += chr(int(h1 + h2, 16))
+                else:
+                    buf += {"n": "\n", "t": "\t", "\\": "\\", "r": "\r", "0": "\x00"}.get(esc, esc)
             else:
                 buf += ch
         if not self.peek():
@@ -305,6 +309,7 @@ class Lexer:
                 "*": T.STAR,    "/": T.SLASH,
                 "&": T.AMP,     "!": T.BANG,
                 "%": T.PERCENT,
+                "{": T.LBRACE, "}": T.RBRACE,
             }
             if ch in single:
                 self.add(single[ch], ch, line, col)

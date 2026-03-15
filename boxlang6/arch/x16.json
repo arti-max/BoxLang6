@@ -22,6 +22,7 @@
     "dh": { "id": 6, "bits": 8 },
     "bh": { "id": 7, "bits": 8 }
   },
+  "tmp_regs": ["cx", "dx", "si", "di"],
 
   "calling_convention": {
     "arg_passing": "stack",
@@ -55,24 +56,26 @@
         ]
     },
     "ptr_store": {
-        "desc": "[bx] = ax",
+        "desc": "ax=addr, cx=value → [bx]=cx",
         "steps": [
-            { "insn": "mov", "variant": "bx_ptr_reg16", "args": ["ax"] }
+            { "insn": "mov", "variant": "reg16_reg16",  "args": ["bx", "ax"] },
+            { "insn": "mov", "variant": "reg16_reg16",  "args": ["ax", "cx"] },
+            { "insn": "mov", "variant": "bx_ptr_reg16", "args": ["ax"]       }
         ]
     },
 
-    "add": { "desc": "ax += bx", "steps": [ { "insn": "add", "variant": "reg16_reg16", "args": ["ax", "bx"] } ] },
-    "sub": { "desc": "ax -= bx", "steps": [ { "insn": "sub", "variant": "reg16_reg16", "args": ["ax", "bx"] } ] },
-    "mul": { "desc": "ax *= bx", "steps": [ { "insn": "mul", "variant": "reg16",        "args": ["bx"]       } ] },
+    "add": { "desc": "ax += bx", "steps": [ { "insn": "add", "variant": "reg16_reg16", "args": ["ax", "$right"] } ] },
+    "sub": { "desc": "ax -= bx", "steps": [ { "insn": "sub", "variant": "reg16_reg16", "args": ["ax", "$right"] } ] },
+    "mul": { "desc": "ax *= bx", "steps": [ { "insn": "mul", "variant": "reg16",        "args": ["$right"]       } ] },
     "div": {
       "desc": "ax /= bx",
       "steps": [
         { "insn": "xor", "variant": "reg16_reg16", "args": ["dx", "dx"] },
-        { "insn": "div", "variant": "reg16",        "args": ["bx"]       }
+        { "insn": "div", "variant": "reg16",        "args": ["$right"]       }
       ]
     },
     "neg": { "desc": "ax = -ax", "steps": [ { "insn": "neg", "variant": "reg16", "args": ["ax"] } ] },
-    "cmp": { "desc": "cmp ax, bx", "steps": [ { "insn": "cmp", "variant": "reg16_reg16", "args": ["ax", "bx"] } ] },
+    "cmp": { "desc": "cmp ax, bx", "steps": [ { "insn": "cmp", "variant": "reg16_reg16", "args": ["ax", "$right"] } ] },
 
     "call":  { "steps": [ { "insn": "call", "variant": "rel16", "args": ["$label"] } ] },
     "ret":   { "steps": [ { "insn": "ret",  "variant": "near",  "args": []          } ] },

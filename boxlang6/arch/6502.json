@@ -20,6 +20,7 @@
     "s": { "id": 3, "bits": 8 },
     "p": { "id": 4, "bits": 8 }
   },
+  "tmp_regs": ["x"],
 
   "calling_convention": {
     "arg_passing": "registers",
@@ -150,6 +151,20 @@
         ]
     },
 
+    "ptr_store": {
+        "desc": "стек=addr, A=value → [addr]=value",
+        "steps": [
+            { "insn": "sta", "variant": "zp_lit",   "args": ["const:0xFF"] },
+            { "insn": "pla", "variant": "plain",     "args": []             },
+            { "insn": "sta", "variant": "zp_lit",    "args": ["const:0xFD"] },
+            { "insn": "lda", "variant": "imm",       "args": ["const:0x00"] },
+            { "insn": "sta", "variant": "zp_lit",    "args": ["const:0xFE"] },
+            { "insn": "ldy", "variant": "imm",       "args": ["const:0x00"] },
+            { "insn": "lda", "variant": "zp_lit",    "args": ["const:0xFF"] },
+            { "insn": "sta", "variant": "zp_ind_y",  "args": ["const:0xFD"] }
+        ]
+    },
+
     "jump_if_zero":       { "steps": [ { "insn": "beq", "variant": "rel8", "args": ["$label"] } ] },
     "jump_if_not_zero":   { "steps": [ { "insn": "bne", "variant": "rel8", "args": ["$label"] } ] },
     "jump_if_less":       { "steps": [ { "insn": "bcc", "variant": "rel8", "args": ["$label"] } ] },
@@ -271,6 +286,14 @@
             { "bits": "23:16", "source": "const:0x8D"    },
             { "bits": "15:8",  "source": "arg:0:imm.lo8" },
             { "bits": "7:0",   "source": "arg:0:imm.hi8" }
+          ]
+        },
+        "zp_ind_y": {
+          "desc": "STA (zp),Y  →  0x91, zp_addr",
+          "size_bits": 16,
+          "fields": [
+            { "bits": "15:8", "source": "const:0x91" },
+            { "bits": "7:0",  "source": "arg:0:imm"  }
           ]
         }
       }

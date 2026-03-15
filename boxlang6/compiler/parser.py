@@ -340,16 +340,23 @@ class Parser:
     # ── var decl ──────────────────────────────────────────────────────────────
 
     def parse_var_decl(self, expect_semi: bool = True) -> VarDecl:
-        type_tok = self.peek()                      # ← запоминаем до parse_type_ref
+        type_tok = self.peek()
         l, c     = type_tok.line, type_tok.col
         type_ref = self.parse_type_ref()
         name     = self.expect(T.IDENT, "Expected variable name").value
-        value    = None
+
+        # массив: num16 arr[5]  — размер после имени
+        if self.match(T.LBRACKET):
+            count_tok      = self.expect(T.NUMBER, "Expected array size")
+            type_ref.array = int(count_tok.value, 0)
+            self.expect(T.RBRACKET, "Expected ']' after array size")
+
+        value = None
         if self.match(T.COLON):
             value = self.parse_expr()
         if expect_semi:
             self.expect(T.SEMICOLON, "Expected ';' after variable declaration")
-        return VarDecl(type_ref=type_ref, name=name, value=value, line=l, col=c)  # ← +line col
+        return VarDecl(type_ref=type_ref, name=name, value=value, line=l, col=c)
 
     # ── assign or expr stmt ───────────────────────────────────────────────────
 
@@ -359,25 +366,15 @@ class Parser:
     # ── type ref ─────────────────────────────────────────────────────────────
 
     def parse_type_ref(self) -> TypeRef:
-        """
-        num16 / char* / bit[8]
-        """
         tok  = self.expect(T.TYPE, "Expected type")
         base = tok.value
         l, c = tok.line, tok.col
 
-        array   = None
         pointer = False
-
-        if self.match(T.LBRACKET):
-            count_tok = self.expect(T.NUMBER, "Expected array size")
-            array     = int(count_tok.value, 0)
-            self.expect(T.RBRACKET, "Expected ']' after array size")
-
         if self.match(T.STAR):
             pointer = True
 
-        return TypeRef(base=base, pointer=pointer, array=array, line=l, col=c)
+        return TypeRef(base=base, pointer=pointer, array=None, line=l, col=c)
 
     # ── expressions ──────────────────────────────────────────────────────────
     #
@@ -468,7 +465,7 @@ class Parser:
         # string literal (в выражениях — для asm и т.п.)
         if tok.type == T.STRING_LIT:
             self.advance()
-            return Literal(value=tok.value, line=tok.line, col=tok.col)
+            return StringLiteral(value=tok.value, line=tok.line, col=tok.col)
 
         # identifier — может быть IDENT::IDENT
         if tok.type == T.IDENT:
@@ -479,6 +476,16 @@ class Parser:
                 return ScopedIdentifier(namespace=ns, name=name,
                                         line=tok.line, col=tok.col)
             return Identifier(name=tok.value, line=tok.line, col=tok.col)
+        
+        if tok.type == T.LBRACE:
+            self.advance()
+            elements = []
+            if not self.check(T.RBRACE):
+                elements.append(self.parse_expr())
+                while self.match(T.COMMA):
+                    elements.append(self.parse_expr())
+            self.expect(T.RBRACE, "Expected '}' to close array initializer")
+            return ArrayInit(elements=elements, line=tok.line, col=tok.col)
 
         # (expr)
         if tok.type == T.LPAREN:

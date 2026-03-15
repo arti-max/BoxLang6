@@ -1,0 +1,22 @@
+box _start[] : num16 (
+    num16 arr[5];
+    arr[0]: 10;
+    arr[1]: 20;
+    arr[2]: 30;
+
+    num16 a: arr[0];
+    num16 b: arr[1];
+    num16 c: arr[2];
+
+    num16 len: arr.length;
+
+    char hello[13]: "Hello, World";
+    char h: hello[0];
+    char ex: hello[6];
+
+    num16 nums[3]: {100, 200, 300};
+    num16 n0: nums[0];
+    num16 n2: nums[2];
+
+    exit[0];
+)

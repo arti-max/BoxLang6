@@ -1,0 +1,15 @@
+box _start[] : num16 (
+    char x: 10;
+    char y: 20;
+    char z: 30;
+
+    char* p: &x;
+
+    char a: *(p);
+    char b: *(p+1);
+    char c: *(p+2);
+
+    *(p+1): 99;
+
+    exit[0];
+)

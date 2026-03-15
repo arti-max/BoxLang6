@@ -78,6 +78,17 @@ class LabelRef(Node):
 class Literal(Node):
     """Числовой или символьный литерал. Например: 16, 'a', 0xFF"""
     value: Any = 0
+    
+@dataclass
+class StringLiteral(Node):
+    """Строковый литерал: "Hello, World!" """
+    value: str = ""
+
+
+@dataclass
+class ArrayInit(Node):
+    """Инициализатор массива: {1, 2, 3}"""
+    elements: List[Node] = field(default_factory=list)
 
 @dataclass
 class Identifier(Node):
