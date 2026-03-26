@@ -27,6 +27,7 @@ class T:
     ELSE        = "ELSE"         # else
     LABEL_DEF   = "LABEL_DEF"    # @fs_error:
     LABEL_REF   = "LABEL_REF"    # @fs_error
+    SHELVE      = "SHELVE"       # shelve
 
     # Types
     TYPE        = "TYPE"         # bit, bit2, bit4, char, num16, num32
@@ -98,6 +99,7 @@ KEYWORDS = {
     "asm":       T.ASM,
     "if":        T.IF,
     "else":      T.ELSE,
+    "shelve":    T.SHELVE,
 }
 
 TYPES = {"bit", "bit2", "bit4", "char", "num16", "num32"}

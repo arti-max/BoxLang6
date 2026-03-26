@@ -134,9 +134,10 @@ class IndexAccess(Node):
 
 @dataclass
 class FieldAccess(Node):
-    """Доступ к полю shelf: myShelf.varA"""
+    """Доступ к полю: obj.field, obj->field"""
     target: Node = field(default_factory=Node)
     field_name: str = ""
+    pointer_deref: bool = False  # False для ., True для ->
 
 
 # ─── Statements ──────────────────────────────────────────────────────────────
@@ -267,9 +268,15 @@ class FieldDecl(Node):
 
 @dataclass
 class ShelfDef(Node):
-    """
-    shelf MyShelf ( fields )
-    """
-    name:   str             = ""
+    """shelf MyShelf ( fields )"""
+    name: str = ""
     fields: List[FieldDecl] = field(default_factory=list)
+    # добавляем для дефолтных значений структур
+    default_init: bool = False  # True если shelf используется как тип с дефолтом
+    
+
+@dataclass
+class ShelveCall(Node):  # аналог new
+    """shelve Vec2 — выделяет shelf Vec2 и возвращает указатель"""
+    shelf_name: str = ""
 

@@ -372,7 +372,11 @@ class Parser:
         tok  = self.expect(T.TYPE, "Expected type")
         base = tok.value
         l, c = tok.line, tok.col
-
+        
+        if tok.value == "shelve":
+            shelf_name = self.expect(T.IDENT).value
+            return TypeRef(base="shelf", pointer=True, array=None, shelf_name=shelf_name)
+        
         pointer = False
         if self.match(T.STAR):
             pointer = True
@@ -417,23 +421,15 @@ class Parser:
         return left
 
     def parse_unary(self) -> Node:
-        if self.check(T.MINUS, T.BANG, T.STAR):
-            op      = self.advance()
+        # унарные операторы: - ! * &
+        if self.check(T.MINUS, T.BANG, T.STAR, T.AMP):
+            op_tok  = self.advance()
             operand = self.parse_unary()
-            return UnaryOp(op=op.value, operand=operand,
-                        line=op.line, col=op.col)
-
-        if self.check(T.AMP):
-            op  = self.advance()
-            # &funcName или &varName — оба парсятся одинаково,
-            # разница только в codegen (var_offsets vs labels)
-            name_tok = self.expect(T.IDENT, "Expected name after &")
             return UnaryOp(
-                op      = "&",
-                operand = Identifier(name=name_tok.value,
-                                    line=name_tok.line, col=name_tok.col),
-                line    = op.line,
-                col     = op.col
+                op      = op_tok.value,
+                operand = operand,
+                line    = op_tok.line,
+                col     = op_tok.col,
             )
 
         return self.parse_postfix()
@@ -443,11 +439,19 @@ class Parser:
         while True:
             if self.match(T.LBRACKET):          # arr[i]
                 index = self.parse_expr()
-                self.expect(T.RBRACKET, "Expected ']' after index")
+                self.expect(T.RBRACKET)
                 node = IndexAccess(target=node, index=index)
-            elif self.match(T.DOT):             # shelf.field
-                fname = self.expect(T.IDENT, "Expected field name after '.'").value
-                node  = FieldAccess(target=node, field_name=fname)
+            elif self.match(T.DOT):             # obj.field
+                fname = self.expect(T.IDENT).value
+                node = FieldAccess(target=node, field_name=fname, pointer_deref=False)
+            elif (                              # obj->field  ← FIX: смотрим вперёд без consume
+                self.peek(0).type == T.MINUS
+                and self.peek(1).type == T.GT
+            ):
+                self.advance()  # consume  -
+                self.advance()  # consume  >
+                fname = self.expect(T.IDENT).value
+                node = FieldAccess(target=node, field_name=fname, pointer_deref=True)
             else:
                 break
         return node

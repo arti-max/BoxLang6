@@ -186,6 +186,8 @@ class SemanticAnalyzer:
 
     def visit_VarDecl(self, node: VarDecl):
         self._check_type(node.type_ref, node)
+        
+        
         if node.value:
             self.visit(node.value)
             self._check_value_fits(node.type_ref, node.value, node)
@@ -196,6 +198,14 @@ class SemanticAnalyzer:
                         f"String length {len(node.value.value)} exceeds "
                         f"array size {node.type_ref.array}", node
                     )
+            
+            if node.type_ref.base == "shelf":
+                shelf_name = getattr(node.type_ref, 'shelf_name', None)
+                if shelf_name is None:
+                    raise SemanticError(f"shelf type requires name (shelve Vec2)", node)
+                if shelf_name not in self.shelves:
+                    raise SemanticError(f"No shelf '{shelf_name}' defined", node)        
+            
             # проверка ArrayInit
             if node.type_ref.array is not None and isinstance(node.value, ArrayInit):
                 if len(node.value.elements) > node.type_ref.array:
@@ -377,6 +387,22 @@ class SemanticAnalyzer:
                         f"cannot access .length", node
                     )
             return
+
+        self.visit(node.target)
+        
+        # резолвим shelf_name из target
+        shelf_name = self._resolve_shelf_name(node.target)
+        if shelf_name:
+            shelf_def = self.shelves.get(shelf_name)
+            if shelf_def is None:
+                raise SemanticError(f"No shelf '{shelf_name}'", node)
+            
+            field = next((f for f in shelf_def.fields if f.name == node.field_name), None)
+            if field is None:
+                raise SemanticError(f"No field '{node.field_name}' in shelf '{shelf_name}'", node)
+            return
+        
+        # fallback для других случаев
         self.visit(node.target)
 
     def visit_Literal(self, node: Literal): # type: ignore
@@ -388,10 +414,18 @@ class SemanticAnalyzer:
     # ── helpers ───────────────────────────────────────────────────────────────
 
     def _check_type(self, type_ref: TypeRef, node: Node):
-        if type_ref.base not in VALID_TYPES:
-            raise SemanticError(
-                f"Unknown type '{type_ref.base}'", node
-            )
+        base = type_ref.base
+        
+        if base == "shelf":
+            shelf_name = getattr(type_ref, 'shelf_name', None)
+            if shelf_name is None:
+                raise SemanticError("shelf requires name: 'shelve Vec2' or 'shelf Vec2'", node)
+            if shelf_name not in self.shelves:
+                raise SemanticError(f"No shelf '{shelf_name}' defined", node)
+            return  # ✅ shelf OK
+        
+        if base not in VALID_TYPES:
+            raise SemanticError(f"Unknown type '{base}'", node)
 
 
 # ─── Test ────────────────────────────────────────────────────────────────────

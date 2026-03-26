@@ -8,7 +8,7 @@ namespace std (
         ret a*a;
     )
 
-    box printf[char* str] : void (
+    box printf[char* str] (
         char* char_ptr: str;
         num16* arg_ptr: &str+2;
 
@@ -19,6 +19,81 @@ namespace std (
         )
     )
 
+
+    /*box itoa[num16 num, char* buf] (
+        char zero: '0';
+
+        // обработка нуля
+        if [num == 0] (
+            buf[0]: zero;
+            buf[1]: 0;
+            ret buf;
+        )
+
+        // определение длины числа
+        num16 n: num;
+        num16 len: 0;
+        while [n > 0] (
+            n: n / 10;
+            len: len + 1;
+        )
+
+        num16 i: len;
+        buf[i]: 0;
+        while [num > 0] (
+            //i: i - 1;
+            char digit: num * 10;
+            buf[i]: zero + digit;
+            num: num / 10;
+        )
+
+        ret &buf[i];
+    )*/
+
+    box div10[char dividend, char divisor, char* q] (
+        if [divisor == 0] (
+            ret -1;
+        )
+
+        *q: dividend / divisor;
+        ret dividend - (*q * divisor); // остаток
+    )
+
+    box reverse8[char* str, char len] (
+        char* start: str;
+        char* end: str+len-1;
+        char tmp;
+
+        while [start < end] (
+            tmp: *start;
+            *start: *end;
+            *end: tmp;
+            start:start+1;
+            end:end-1;
+        )
+    )
+
+    box itoa8[char num8, char* buf] (
+        /*char* ptr: buf;
+        char s: 0;
+
+        while [num8 > 0] (
+            *ptr: open div10[num8, 10, &s] + '0';
+            num8: num8/10;
+            ptr:ptr+1;
+        )
+        *ptr: 0x00;
+
+        open reverse8[buf];
+
+        ret;*/
+
+        char z: '0';
+
+        *(buf+0): z+num8;
+        *(buf+1): 0x00;
+
+    )
 )
 
 $endif

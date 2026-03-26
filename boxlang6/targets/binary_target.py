@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ast import stmt
 import struct
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -180,7 +181,12 @@ class BinaryTarget(BaseTarget):
         # jmp _start в самом начале .com файла
         if self.output_format() == "com":
             entry = self.entry_point()   # "_start"
+            self._insn("push", "ss", [])
+            self._insn("pop", "ds", [])
+            self._insn("push", "ss", [])
+            self._insn("pop", "es", [])
             self._op("jump", {"$label": entry})
+            
 
         for node in program.body:
             self._emit_node(node)
@@ -549,25 +555,65 @@ class BinaryTarget(BaseTarget):
         prev_offsets    = self._var_offsets.copy()
         prev_regs       = self._var_regs.copy()
         prev_sizes      = self._var_sizes.copy()
-        prev_types      = self._var_types.copy()        # ← новое
+        prev_types      = self._var_types.copy()
         prev_stack      = self._stack_off
         prev_addr       = self._addr_off
         prev_free       = self._free_regs.copy()
         prev_elem_sizes = self._var_elem_sizes.copy()
+        
+        label = self._scoped_label(node)
+        self._def_label(label)           # ← эта строка обязательна для _start!
 
+        # --- Phase 1: собрать локальные переменные ---
+        local_vars = self._collect_vars(node.body)   # {name: (type_ref, size)}
+
+        # --- Phase 2: выделить все локали и пространство стека ---
         self._var_offsets    = {}
         self._var_regs       = {}
         self._var_sizes      = {}
-        self._var_types      = {}                       # ← новое
+        self._var_types      = {}
         self._stack_off      = 0
         self._addr_off       = 0
         self._free_regs      = list(self.arch.get("var_regs", []))
+        self._var_elem_sizes = {}
 
-        label = self._scoped_label(node)
-        self._def_label(label)
+        mode = self._storage_mode()
+        total_stack = 0   # суммарный размер локалей
         self._emit_prologue()
 
-        mode        = self._storage_mode()
+        if mode == "stack":
+            for name, (type_ref, size) in local_vars.items():
+                self._var_types[name] = type_ref
+                self._var_sizes[name] = size
+                self._stack_off -= size
+                self._var_offsets[name] = self._stack_off
+                total_stack += size
+
+            # если есть локали – один раз выделить весь стек
+            if total_stack > 0:
+                alloc = self.arch["var_alloc"]
+                args  = self._resolve_step_args(alloc["args"], {"$size": total_stack})
+                self._insn(alloc["insn"], alloc["variant"], args)
+
+        elif mode == "registers":
+            for name, (type_ref, size) in local_vars.items():
+                self._var_types[name] = type_ref
+                self._var_sizes[name] = size
+                if not self._free_regs:
+                    raise CodeGenError(f"No free registers to allocate variable '{name}'")
+                reg = self._free_regs.pop(0)
+                self._var_regs[name] = reg
+        else:
+            # address mode
+            for name, (type_ref, size) in local_vars.items():
+                addr = self._addr_base() + self._addr_off
+                self._var_offsets[name] = addr
+                self._var_sizes[name]  = size
+                self._var_types[name]  = type_ref
+                self._addr_off        += size
+        
+
+        # --- Phase 3: аргументы ---
         arg_regs    = self.arg_regs()
         arg_passing = self.arch["calling_convention"].get("arg_passing", "registers")
         base_off    = self.arch["calling_convention"].get("arg_base_offset", 4)
@@ -578,28 +624,42 @@ class BinaryTarget(BaseTarget):
                 off = base_off + i * stack_align
                 self._var_offsets[param.name] = off
                 self._var_sizes[param.name]   = self._type_size(param.type_ref)
-                self._var_types[param.name]   = param.type_ref   # ← новое
-            else:
+                self._var_types[param.name]   = param.type_ref
+
+            else:  # registers or address
                 if mode == "stack":
-                    self._alloc_var(param.name, param.type_ref)
-                    # _alloc_var уже сохраняет _var_types
-                    if i < len(arg_regs):
-                        src = arg_regs[i]
-                        if src != self.return_reg():
-                            self._op("copy_reg", {"$src": src, "$dst": self.return_reg()})
-                        self._store_work_to_var(param.name, param)
-                elif mode == "registers":
-                    if i < len(arg_regs):
-                        self._var_regs[param.name] = arg_regs[i]
-                    self._var_types[param.name] = param.type_ref   # ← новое
-                else:
-                    self._alloc_var(param.name, param.type_ref)
+                    if param.name not in self._var_offsets:
+                        # локаль уже выделена, но параметр ≠ локаль
+                        size = self._type_size(param.type_ref)
+                        self._stack_off -= size
+                        self._var_offsets[param.name] = self._stack_off
+                        self._var_sizes[param.name]   = size
+                        self._var_types[param.name]   = param.type_ref
                     if i < len(arg_regs):
                         src = arg_regs[i]
                         if src != self.return_reg():
                             self._op("copy_reg", {"$src": src, "$dst": self.return_reg()})
                         self._store_work_to_var(param.name, param)
 
+                elif mode == "registers":
+                    if i < len(arg_regs):
+                        self._var_regs[param.name] = arg_regs[i]
+                    self._var_types[param.name] = param.type_ref
+
+                else:  # address mode
+                    if param.name not in self._var_offsets:
+                        addr = self._addr_base() + self._addr_off
+                        self._var_offsets[param.name] = addr
+                        self._var_sizes[param.name]   = self._type_size(param.type_ref)
+                        self._var_types[param.name]   = param.type_ref
+                        self._addr_off += self._var_sizes[param.name]
+                    if i < len(arg_regs):
+                        src = arg_regs[i]
+                        if src != self.return_reg():
+                            self._op("copy_reg", {"$src": src, "$dst": self.return_reg()})
+                        self._store_work_to_var(param.name, param)
+
+        # --- Phase 4: генерация тела ---
         has_explicit_ret = False
         for stmt in node.body:
             self._emit_node(stmt)
@@ -609,14 +669,26 @@ class BinaryTarget(BaseTarget):
         if not has_explicit_ret:
             self._emit_epilogue()
 
+        # --- восстановить внешнее состояние ---
         self._var_offsets    = prev_offsets
         self._var_regs       = prev_regs
         self._var_sizes      = prev_sizes
-        self._var_types      = prev_types               # ← новое
+        self._var_types      = prev_types
         self._stack_off      = prev_stack
         self._addr_off       = prev_addr
         self._free_regs      = prev_free
         self._var_elem_sizes = prev_elem_sizes
+    
+    def _collect_vars(self, stmts: List[stmt]) -> Dict[str, Tuple[TypeRef, int]]:
+        result = {}
+        for stmt in stmts:
+            if isinstance(stmt, VarDecl):
+                tr = stmt.type_ref
+                size = self._type_size(tr)
+                if tr.pointer:
+                    size = self.arch.get("bits", 16) // 8   # указатель 16 бит
+                result[stmt.name] = (tr, size)
+        return result
 
     def _scoped_label(self, node: FunctionDef) -> str:
         if self._namespace_prefix:
@@ -640,7 +712,7 @@ class BinaryTarget(BaseTarget):
             offset = i * elem_size
 
             if mode == "stack":
-                elem_off = base_addr - offset   # стек растёт вниз
+                elem_off = base_addr + offset   # стек растёт вниз
                 if elem_size == 1:
                     self._op("store_var8", {"$bp_offset": elem_off})
                 else:
@@ -658,7 +730,7 @@ class BinaryTarget(BaseTarget):
         self._def_label(node.name)
 
     def _emit_VarDecl(self, node: VarDecl):
-        self._alloc_var(node.name, node.type_ref)
+        # self._alloc_var(node.name, node.type_ref)
         if node.value is None:
             return
 
@@ -1105,12 +1177,27 @@ class BinaryTarget(BaseTarget):
                 self._op("neg", {})
 
             elif node.op == "&":
-                name = node.operand.name
-                if name in self._var_offsets:
-                    off = self._var_offsets[name]
-                    self._op("load_addr", {"$offset": off})
+                operand = node.operand
+                
+                # &var (простая переменная)
+                if isinstance(operand, Identifier):
+                    name = operand.name
+                    if name in self._var_offsets:
+                        off = self._var_offsets[name]
+                        self._op("load_addr", {"$offset": off})
+                    else:
+                        self._op("load_label_addr", {"$label": name})
+                
+                # &arr[i] (адрес элемента массива)
+                elif isinstance(operand, IndexAccess):
+                    if not isinstance(operand.target, Identifier):
+                        raise CodeGenError("Address-of index requires identifier array", node)
+                    arr_name = operand.target.name
+                    elem_size = self._var_elem_sizes.get(arr_name, 1)
+                    self._emit_array_addr(arr_name, operand.index, elem_size)
+                
                 else:
-                    self._op("load_label_addr", {"$label": name})
+                    raise CodeGenError(f"Unsupported operand for &: {type(operand).__name__}", node)
 
             elif node.op == "*":
                 self._emit_expr_to_work(node.operand)

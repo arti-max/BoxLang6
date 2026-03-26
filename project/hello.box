@@ -1,0 +1,8 @@
+$include <x16pros/api>
+
+box _start[] (
+    char hello[14]: "Hello, World!\x00";
+    open x16ProsApi::PrintWhiteString[&hello];
+    open x16ProsApi::PrintNewline[];
+    ret 0;
+)

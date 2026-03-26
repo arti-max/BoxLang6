@@ -1,0 +1,66 @@
+$ifndef MOS6502
+$use x16pros
+$include <x16pros/api>
+$include <stdlib>
+$endif
+
+// x86-16 - на ОС x16pros
+// 6502 - голое железо 6502, результат поочерёдно в регистр A кладётся
+
+box _start[] (
+    char num1: 0;
+    char num2: 1;
+    char arr[10];
+    char i: 0;
+    char tmp;
+    // 8 раз повторяется крч
+    arr[0]: num1;
+    arr[1]: num2;
+
+    while [i<8] (
+        tmp: num2+num1;
+        num1: num2;
+        num2: tmp;
+        arr[2+i]: tmp;
+        i:i+1;
+    )
+    arr[2+i]: 0xFE;
+
+    open printarr[&arr];
+
+    ret 0;
+)
+
+$ifndef MOS6502 
+
+box printarr[char* arr] (
+    char* ptr: arr;
+    char i: 0;
+    char buf[4]: {0x00, 0x00, 0x00, 0x00};
+
+    while [*ptr != 0xFE] (
+        open std::itoa8[*ptr, &buf];
+        buf[3]: 0x00;
+        open x16ProsApi::PrintStrWithColor[&buf, COLOR_WHITE];
+        ptr: ptr + 1;
+        i: i + 1;
+        open x16ProsApi::PrintNewline[];
+    )
+
+    open x16ProsApi::PrintNewline[];
+)
+
+$else
+
+box printarr[char* arr] (
+    char ptr: arr;
+    while [*ptr != 0xFE] (
+        char n: *ptr;
+        asm["lda", n];
+        ptr:ptr+1;
+    )
+)
+
+$endif
+
+

@@ -65,6 +65,7 @@ def compile_file(
     arch:     str,
     debug:    bool,
     use:      str | None,
+    defines: list
 ) -> None:
 
     std_dir = os.path.join(os.path.dirname(__file__), "std")
@@ -80,6 +81,8 @@ def compile_file(
     print(f"{CYAN}[1/6]{RESET} Preprocessing  {src_path}")
     try:
         pp = Preprocessor(std_dir=std_dir)
+        for d in defines:
+            pp.defines[d] = None
         source, defines = pp.process(raw_source, current_file=src_path)
     except PreprocessorError as e:
         _error(f"Preprocessor: {e}")
@@ -113,15 +116,15 @@ def compile_file(
 
     # 5. кодогенерация
     print(f"{CYAN}[5/6]{RESET} Code generation  arch={arch}")
-    try:
-        target = BinaryTarget(arch)
-        binary = target.emit(program)
-    except ArchLoadError as e:
-        _error(f"Architecture error: {e}")
-    except CodeGenError as e:
-        _error(f"CodeGen: {e}", source)
-    except Exception as e:
-        _error(f"Internal codegen error: {e}", source)
+    # try:
+    target = BinaryTarget(arch)
+    binary = target.emit(program)
+    # except ArchLoadError as e:
+        # _error(f"Architecture error: {e}")
+    # except CodeGenError as e:
+        # _error(f"CodeGen: {e}", source)
+    # except Exception as e:
+        # _error(f"Internal codegen error: {e}", source)
 
     # 6. запись бинарника
     print(f"{CYAN}[6/6]{RESET} Writing {out_path}  ({len(binary)} bytes)")
@@ -196,6 +199,8 @@ examples:
     p.add_argument("--debug",   action="store_true",
                    help="write .hex dump and ndisasm .asm.txt alongside output")
     p.add_argument("--version", action="version", version="BoxLang6 0.1.0")
+    p.add_argument("-D", action="append", dest="defines", default=[],
+               metavar="NAME", help="define preprocessor symbol (e.g. -D MOS6502)")
     return p
 
 
@@ -210,6 +215,7 @@ def main():
         arch     = args.arch,
         debug    = args.debug,
         use      = args.use,
+        defines  = args.defines,
     )
 
 

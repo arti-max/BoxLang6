@@ -27,14 +27,14 @@ namespace x16ProsApi (
     )
 
     box SetTextColor[char color] (
-        asm["mov", "ah", 0x07];
         asm["mov", "bl", color];
+        asm["mov", "ah", 0x07];
         asm["int", 0x21];
     )
 
     box PrintStr[char* str] (
-        asm["mov", "ah", 0x08];
         asm["mov", "si", str];
+        asm["mov", "ah", 0x08];
         asm["int", 0x21];
     )
 
@@ -50,6 +50,12 @@ namespace x16ProsApi (
 
     box PrintNewline[] (
         asm["mov", "ah", 0x05];
+        asm["int", 0x21];
+    )
+
+    box PrintWhiteString[char* str] (
+        asm["mov", "si", str];
+        asm["mov", "ah", 0x01];
         asm["int", 0x21];
     )
 

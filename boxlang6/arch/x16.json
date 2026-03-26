@@ -20,7 +20,12 @@
     "ah": { "id": 4, "bits": 8 },
     "ch": { "id": 5, "bits": 8 },
     "dh": { "id": 6, "bits": 8 },
-    "bh": { "id": 7, "bits": 8 }
+    "bh": { "id": 7, "bits": 8 },
+
+    "ss": { "id": 8, "bits": 16 },
+    "ds": { "id": 9, "bits": 16 },
+    "es": { "id": 10, "bits": 16 },
+    "cs": { "id": 11, "bits": 16 }
   },
   "tmp_regs": ["cx", "dx", "si", "di"],
 
@@ -421,7 +426,11 @@
             { "bits": "15:8",  "source": "arg:0:imm.lo8" },
             { "bits": "7:0",   "source": "arg:0:imm.hi8" }
           ]
-        }
+        },
+        "ss": { "desc": "PUSH SS → 0x16", "size_bits": 8, "fields": [{"bits": "7:0", "source": "const:0x16"}] },
+        "ds": { "desc": "PUSH DS → 0x1E", "size_bits": 8, "fields": [{"bits": "7:0", "source": "const:0x1E"}] },
+        "es": { "desc": "PUSH ES → 0x06", "size_bits": 8, "fields": [{"bits": "7:0", "source": "const:0x06"}] },
+        "cs": { "desc": "PUSH CS → 0x0E", "size_bits": 8, "fields": [{"bits": "7:0", "source": "const:0x0E"}] }
       }
     },
 
@@ -434,7 +443,10 @@
             { "bits": "7:3", "source": "const:0xB"    },
             { "bits": "2:0", "source": "arg:0:reg.id" }
           ]
-        }
+        },
+        "ds": { "desc": "POP DS → 0x1F", "size_bits": 8, "fields": [{"bits": "7:0", "source": "const:0x1F"}] },
+        "ss": { "desc": "POP SS → 0x17", "size_bits": 8, "fields": [{"bits": "7:0", "source": "const:0x17"}] },
+        "es": { "desc": "POP ES → 0x07", "size_bits": 8, "fields": [{"bits": "7:0", "source": "const:0x07"}] }
       }
     },
 
@@ -530,18 +542,19 @@
   "syscalls": {},
 
   "prologue": [
-    { "insn": "push", "variant": "reg16",     "args": ["bp"]       },
-    { "insn": "mov",  "variant": "reg16_reg16","args": ["bp", "sp"] }
+    { "insn": "push", "variant": "reg16",        "args": ["bp"]       },
+    { "insn": "mov",  "variant": "reg16_reg16",  "args": ["bp", "sp"] }
   ],
 
   "epilogue": [
+    { "insn": "mov", "variant": "reg16_reg16", "args": ["sp", "bp"]},
     { "insn": "pop", "variant": "reg16", "args": ["bp"] },
     { "insn": "ret", "variant": "near",  "args": []     }
   ],
 
   "output": {
     "format": "com",
-    "origin": "0x0100",
+    "origin": "0x8000",
     "entry":  "_start"
   }
 }

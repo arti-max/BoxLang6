@@ -2,7 +2,7 @@
 """
 BoxLang6 Debugger — FastAPI + WebSocket бэкенд.
 Запуск:
-    python -m boxlang6.debug path/to/file.box [--arch x16] [--port 8765]
+    python -m boxlang6.debug path/to/file.box [--arch x16] [--port 8765] [--use SYSTEM] [-D NAME]
 """
 from __future__ import annotations
 import asyncio
@@ -21,6 +21,7 @@ from ..compiler.lexer       import Lexer
 from ..compiler.parser      import Parser
 from ..compiler.semantic    import SemanticAnalyzer
 from ..compiler.optimizer   import Optimizer
+from ..compiler.preprocessor import Preprocessor, PreprocessorError
 from ..targets.binary_target import BinaryTarget, CodeGenError
 from ..targets.base_target   import ArchLoadError
 from .session   import DebugSession
@@ -36,6 +37,8 @@ _sessions:  Set[WebSocket] = set()
 _session:   DebugSession   = DebugSession()
 _src_path:  str            = ""
 _arch:      str            = "x16"
+_use:       str | None     = None
+_defines:   list[str]      = []
 _SKIP_OWN_MAP = {"Program", "Namespace", "TypeRef", "Param"}
 _CONTAINER_NODES = {"Program", "Namespace", "FunctionDef", "WhileLoop", "ForLoop"}
 _NO_CODE_NODES   = {"TypeRef", "Param"}
@@ -65,7 +68,7 @@ async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
     _sessions.add(ws)
     try:
-        # сразу шлём исходник
+        # сразу шлём исходник (оригинальный, без препроцессинга)
         text = Path(_src_path).read_text(encoding="utf-8")
         await ws.send_text(json.dumps({
             "event": "source",
@@ -99,16 +102,33 @@ async def websocket_endpoint(ws: WebSocket):
 
 def _run_pipeline():
     """Запускается в отдельном потоке, не блокирует event loop."""
-    global _session
+    global _session, _src_path, _arch, _use, _defines
 
+    # 0. читаем исходник
     try:
-        source = Path(_src_path).read_text(encoding="utf-8")
+        raw_source = Path(_src_path).read_text(encoding="utf-8")
     except OSError as e:
         _session.emit_error(f"Cannot read file: {e}")
         _session.emit_done()
         return
 
-    # Lexer
+    # 1. препроцессор
+    try:
+        std_dir = os.path.join(os.path.dirname(__file__), "..", "std")
+        pp = Preprocessor(std_dir=std_dir)
+        for d in _defines:
+            pp.defines[d] = None
+        source, _ = pp.process(raw_source, current_file=_src_path)
+    except PreprocessorError as e:
+        _session.emit_error(f"Preprocessor: {e}")
+        _session.emit_done()
+        return
+    except OSError as e:
+        _session.emit_error(f"Preprocessor I/O: {e}")
+        _session.emit_done()
+        return
+
+    # 2. Lexer
     try:
         tokens = Lexer(source).tokenize()
     except Exception as e:
@@ -116,7 +136,7 @@ def _run_pipeline():
         _session.emit_done()
         return
 
-    # Parser
+    # 3. Parser
     try:
         program = Parser(tokens).parse()
     except Exception as e:
@@ -127,7 +147,7 @@ def _run_pipeline():
     # отправляем AST сразу после парсинга
     _session.emit_ast(ast_to_dict(program))
 
-    # Semantic
+    # 4. Semantic
     try:
         SemanticAnalyzer().analyze(program)
     except Exception as e:
@@ -135,10 +155,10 @@ def _run_pipeline():
         _session.emit_done()
         return
 
-    # Optimizer
+    # 5. Optimizer
     program = Optimizer().optimize(program)
 
-    # CodeGen — BinaryTarget с debug-хуками
+    # 6. CodeGen — DebugBinaryTarget с debug-хуками
     try:
         target = DebugBinaryTarget(_arch, _session)
         binary = target.emit(program)
@@ -158,7 +178,6 @@ from ..compiler.ast_nodes    import (
     FunctionDef, VarDecl, Assignment, WhileLoop,
     ForLoop, ReturnStmt, ExitCall, FunctionCall
 )
-
 
 
 class DebugBinaryTarget(BinaryTarget):
@@ -257,10 +276,13 @@ class DebugBinaryTarget(BinaryTarget):
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
-def run_server(src: str, arch: str = "x16", port: int = 8765):
-    global _src_path, _arch, _session
+def run_server(src: str, arch: str = "x16", port: int = 8765,
+               use: str | None = None, defines: list[str] | None = None):
+    global _src_path, _arch, _session, _use, _defines
     _src_path = os.path.abspath(src)
     _arch     = arch
+    _use      = use
+    _defines  = defines or []
     _session  = DebugSession()
 
     # запускаем компиляцию в фоновом потоке
@@ -277,6 +299,10 @@ def run_server(src: str, arch: str = "x16", port: int = 8765):
     print(f"  → http://localhost:{port}")
     print(f"  → file: {_src_path}")
     print(f"  → arch: {_arch}")
+    if _use:
+        print(f"  → use: {_use}")
+    if _defines:
+        print(f"  → defines: {', '.join(_defines)}")
     print(f"  Ctrl+C to stop\n")
 
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
